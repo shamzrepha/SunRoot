@@ -82,7 +82,7 @@ export const CONFIG = {
    * loss across a day and irrigation is fast enough to answer it in seconds.
    */
   irrigationRatePerSecond: 14,
-  evaporationPerSecond: 7.2,
+  evaporationPerSecond: 25.2,
   healthyMoistureMin: 30,
   healthyMoistureMax: 70,
   dryStressBelow: 25,
