@@ -21,6 +21,8 @@ export const RANKS = [
 
 export const progress = {
   xp: 0,
+  /** Awarded by the assessor rather than derived from XP alone. */
+  rank: 'Explorer' as string,
   badges: [
     { id: 'circuit', name: 'Circuit Expert', desc: 'Installed every component correctly', earned: false },
     { id: 'logic', name: 'Logic Builder', desc: 'Deployed working control logic', earned: false },

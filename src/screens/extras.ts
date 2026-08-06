@@ -1,8 +1,9 @@
+import { assess, RANK_ORDER } from '../learning/AIAssessor'
 import { buildQuiz, hasBuildEvidence, recordAnswer } from '../learning/AdaptiveQuiz'
 import type { QuizOption, QuizQuestion } from '../learning/AdaptiveQuiz'
 import { progress } from '../game/progress'
 import { icon } from '../ui/icons'
-import { toast } from '../game/shell'
+import { toast, updateRankUi } from '../game/shell'
 import { sfx } from '../game/sound'
 import { farm } from '../simulation/FarmState'
 
@@ -87,51 +88,92 @@ export function renderTutor(host: HTMLElement) {
 
 // ---------- Engineer report ----------
 
-export function renderReport(host: HTMLElement) {
-  const circuitScore = Object.values({ a: true }).length && progress.objectives.find((o) => o.id === 'install')?.done ? 95 : 40
-  const logicScore = progress.objectives.find((o) => o.id === 'deploy')?.done ? 88 : 35
-  const energyScore = Math.round(Math.max(10, Math.min(100, progress.stats.lowestBattery + 25)))
-  const healthScore = Math.round(progress.stats.peakHealth)
-  const troubleScore = Math.min(100, 45 + progress.stats.pumpCycles * 6)
-
-  const rows = [
-    { label: 'Circuit accuracy', value: circuitScore },
-    { label: 'Logic & programming', value: logicScore },
-    { label: 'Energy efficiency', value: energyScore },
-    { label: 'Troubleshooting', value: troubleScore },
-    { label: 'Crop health', value: healthScore },
-  ]
-  const avg = Math.round(rows.reduce((s, r) => s + r.value, 0) / rows.length)
-  const stars = avg >= 85 ? 5 : avg >= 70 ? 4 : avg >= 55 ? 3 : avg >= 40 ? 2 : 1
-
-  host.innerHTML = `
-    <div class="panel-grid single">
-      <section class="panel">
-        <h2 class="panel-title">Engineer report</h2>
-        <div class="report-rows">
-          ${rows
-            .map(
-              (r) => `
-            <div class="report-row">
-              <span class="report-label">${r.label}</span>
-              <div class="report-track"><div class="report-fill" style="width:${r.value}%"></div></div>
-              <strong class="report-value">${r.value}%</strong>
-            </div>`
-            )
-            .join('')}
+export function renderReport(root: HTMLElement) {
+  root.innerHTML = `
+    <div class="screen report-screen">
+      <div class="lab-header">
+        <div>
+          <h1>Engineer report</h1>
+          <p>Your work assessed against what the simulation recorded. The measured facts are
+             on the right — the assessment is a judgement made on top of them.</p>
         </div>
-        <div class="report-final">
-          <span>Final rank</span>
-          <span class="stars">${icon('star',14).repeat(stars)}${icon('starOutline',14).repeat(5 - stars)}</span>
-          <strong>${avg >= 85 ? 'Systems Engineer' : avg >= 65 ? 'Automation Engineer' : 'Junior Engineer'}</strong>
+        <button id="reassess" class="ghost-button">Re-assess</button>
+      </div>
+      <div class="report-body" id="reportBody">
+        <p class="empty-note">Assessing…</p>
+      </div>
+    </div>`
+
+  const body = root.querySelector<HTMLElement>('#reportBody')!
+  root.querySelector('#reassess')!.addEventListener('click', run)
+
+  async function run() {
+    body.innerHTML = `<p class="empty-note">Assessing your work…</p>`
+    const a = await assess()
+
+    // The rank the assessor awards is the rank the student carries.
+    progress.rank = a.rank
+    progress.xp = Math.max(progress.xp, a.xp)
+    updateRankUi()
+
+    const rankIndex = RANK_ORDER.indexOf(a.rank)
+
+    body.innerHTML = `
+      <section class="assess-panel">
+        <div class="assess-source">
+          ${a.source === 'model' ? icon('brain', 12) : icon('report', 12)}
+          ${a.source === 'model' ? 'Assessed by language model' : 'Assessed by the built-in rubric — connect a model for a fuller reading'}
         </div>
-        <p class="panel-note">Scores update live as your deployed system runs on the farm.</p>
+
+        <div class="rank-badge">
+          <div class="rank-name">${a.rank}</div>
+          <div class="rank-ladder">
+            ${RANK_ORDER.map(
+              (r, i) => `<span class="rung ${i <= rankIndex ? 'on' : ''}" title="${r}"></span>`,
+            ).join('')}
+          </div>
+          <div class="rank-xp">${a.xp} XP awarded</div>
+        </div>
+
+        <h2 class="assess-headline">${a.headline}</h2>
+        <p class="assess-summary">${a.summary}</p>
+
+        <div class="assess-cols">
+          <div>
+            <h3>${icon('check', 12)} Strengths</h3>
+            <ul>${a.strengths.map((x) => `<li>${x}</li>`).join('')}</ul>
+          </div>
+          <div>
+            <h3>${icon('cross', 12)} Gaps</h3>
+            <ul>${a.gaps.map((x) => `<li>${x}</li>`).join('')}</ul>
+          </div>
+        </div>
+
+        <div class="assess-next">
+          <div class="assess-next-tag">DO THIS NEXT</div>
+          <p>${a.nextStep}</p>
+        </div>
       </section>
-    </div>
-  `
-}
 
-// ---------- Learning check ----------
+      <aside class="evidence-panel">
+        <h2>What was measured</h2>
+        <table class="evidence-table">
+          <tbody>
+            ${a.evidence
+              .map((e) => `<tr><td>${e.label}</td><td class="ev-value">${e.value}</td></tr>`)
+              .join('')}
+          </tbody>
+        </table>
+        <p class="model-note">
+          Every figure here was recorded by the simulation. The assessment above interprets
+          them; it does not produce them, and it is instructed never to cite a number that
+          is not on this list.
+        </p>
+      </aside>`
+  }
+
+  run()
+}
 
 
 export function renderQuiz(root: HTMLElement) {

@@ -439,7 +439,10 @@ export function renderFarm(
         )
       }
 
-      const intervention = aiTutorEngine.evaluate(dt)
+      // Advice about sensor pins is meaningless on an empty farm. The tutor
+      // only speaks once there is a deployed system for it to comment on.
+      const hasSystem = graph.placed.length > 0 && appState.codeReady
+      const intervention = hasSystem ? aiTutorEngine.evaluate(dt) : null
       if (intervention && root.querySelector('#crisisOverlay')?.hasAttribute('hidden')) {
         pingAssistant(intervention.severity === 'critical' ? 'alarmed' : 'concerned')
         assistant.onFarmEvent(

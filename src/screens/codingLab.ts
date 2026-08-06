@@ -6,6 +6,7 @@ import { partOf, wiredOutputs } from '../hardware/CircuitGraph'
 import { farm, primeBattery } from '../simulation/FarmState'
 import { beginRun } from '../simulation/Scoreboard'
 import { noteAction } from '../learning/ContextBuilder'
+import { captureProgram } from '../learning/DesignDossier'
 import { learner } from '../learning/LearnerModel'
 import { recordReading, resetDevices, setOutput } from '../simulation/DeviceState'
 import { assistant } from '../ai/Assistant'
@@ -103,6 +104,26 @@ export function renderCodingLab(root: HTMLElement, onDeploy: () => void, onBack:
 
   function compile(): boolean {
     const code = javascriptGenerator.workspaceToCode(workspace)
+
+    // Record the program itself, not just whether it compiled. The assessor
+    // reads this to judge the logic rather than only its outcome.
+    const blocks = workspace.getAllBlocks(false)
+    const blockTypes: Record<string, number> = {}
+    for (const b of blocks) blockTypes[b.type] = (blockTypes[b.type] ?? 0) + 1
+    const numbers = blocks
+      .filter((b) => b.type === 'math_number')
+      .map((b) => Number(b.getFieldValue('NUM')))
+      .filter((n) => Number.isFinite(n))
+    captureProgram(code, {
+      blockCount: blocks.length,
+      blockTypes,
+      numbers,
+      hasLoop: blocks.some((b) => /controls_(repeat|while|for)/.test(b.type)),
+      hasWait: blocks.some((b) => b.type === 'sunroot_wait'),
+      hasConditional: blocks.some((b) => b.type === 'controls_if'),
+      distinctThresholds: [...new Set(numbers)].sort((a, b) => a - b),
+    })
+
     if (!code.trim()) {
       appState.runProgram = null
       appState.codeReady = false

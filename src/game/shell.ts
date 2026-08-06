@@ -133,7 +133,9 @@ export function updateRankUi() {
   const fillEl = document.querySelector<HTMLElement>('#xpFill')
   if (!nameEl || !xpEl || !fillEl) return
 
-  nameEl.textContent = current.name
+  // The assessor's rank wins where one has been awarded; the XP ladder is only
+  // a fallback for a student who has not yet been assessed.
+  nameEl.textContent = progress.rank || current.name
   if (next) {
     const span = next.xp - current.xp
     const into = progress.xp - current.xp

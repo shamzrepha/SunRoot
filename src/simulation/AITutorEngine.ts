@@ -42,6 +42,8 @@ interface PatternRecord {
   /** Farm-hours at which this pattern last fired, for cooldown. */
   lastFiredHour: number
   lastFiredDay: number
+  /** Wall-clock time it last fired, which is what the student experiences. */
+  lastFiredReal: number
 }
 
 export interface TutorTuning {
@@ -49,6 +51,10 @@ export interface TutorTuning {
   chatterCyclesPerHour: number
   /** Farm-hours a pattern must wait before it may fire again. */
   cooldownHours: number
+  /** Minimum real seconds between repeats of the same pattern. */
+  cooldownRealSeconds: number
+  /** Minimum real seconds between any two interventions. */
+  globalQuietRealSeconds: number
   /** Battery percentage below which the overnight projection is run. */
   projectionTriggerBattery: number
   saturationAbove: number
@@ -59,6 +65,16 @@ export interface TutorTuning {
 export const DEFAULT_TUTOR_TUNING: TutorTuning = {
   chatterCyclesPerHour: 14,
   cooldownHours: 2.5,
+  /**
+   * Minimum real seconds between two firings of the same pattern, and between
+   * any two interventions at all.
+   *
+   * Farm-hours alone were the wrong unit: at 4× speed 2.5 farm hours elapse in
+   * about a second, so the same advice repeated several times per second. A
+   * student reads in real time, so the floor has to be in real time too.
+   */
+  cooldownRealSeconds: 45,
+  globalQuietRealSeconds: 20,
   projectionTriggerBattery: 45,
   saturationAbove: 90,
   droughtBelow: 20,
@@ -92,6 +108,16 @@ export class AITutorEngine {
   }
 
   /** How many distinct misconceptions the student has hit. Feeds the report. */
+  /** Final gate before anything reaches the student. */
+  private emit(intervention: Intervention | null): Intervention | null {
+    if (!intervention) return null
+    const text = `${intervention.observation} ${intervention.question}`
+    if (text === this.lastText) return null
+    this.lastText = text
+    this.lastAnyReal = performance.now()
+    return intervention
+  }
+
   getMisconceptionSummary(): { id: MisconceptionId; occurrences: number }[] {
     return [...this.records.entries()].map(([id, r]) => ({ id, occurrences: r.occurrences }))
   }
@@ -101,7 +127,15 @@ export class AITutorEngine {
    * pattern genuinely fires and is off cooldown, so the assistant stays quiet
    * while the student is doing well — silence is information too.
    */
+  private lastAnyReal = Number.NEGATIVE_INFINITY
+  private lastText = ''
+
   evaluate(deltaSeconds: number): Intervention | null {
+    // One voice at a time, whatever is wrong. Several patterns can be true at
+    // once and firing them together reads as noise rather than guidance.
+    if ((performance.now() - this.lastAnyReal) / 1000 < this.tuning.globalQuietRealSeconds) {
+      return null
+    }
     if (!this.enabled) return null
 
     this.trackCycles()
@@ -109,13 +143,13 @@ export class AITutorEngine {
 
     // Ordered by urgency. Only one intervention per tick: a student facing
     // three problems at once needs the most pressing one, not a wall of text.
-    return (
+    return this.emit(
       this.checkControlInstability() ??
-      this.checkThermalNeglect() ??
-      this.checkEnergyDeficit() ??
-      this.checkOverWatering() ??
-      this.checkDroughtBlindness() ??
-      null
+        this.checkThermalNeglect() ??
+        this.checkEnergyDeficit() ??
+        this.checkOverWatering() ??
+        this.checkDroughtBlindness() ??
+        null,
     )
   }
 
@@ -153,8 +187,13 @@ export class AITutorEngine {
   private offCooldown(id: MisconceptionId): boolean {
     const r = this.records.get(id)
     if (!r) return true
-    const elapsed = this.absoluteHour() - (r.lastFiredDay * 24 + r.lastFiredHour)
-    return elapsed >= this.tuning.cooldownHours || elapsed < 0
+    // Both clocks must agree that enough has passed: enough simulated time for
+    // the situation to have plausibly changed, and enough real time for the
+    // student to have read the last message and acted on it.
+    const elapsedFarm = this.absoluteHour() - (r.lastFiredDay * 24 + r.lastFiredHour)
+    const elapsedReal = (performance.now() - (r.lastFiredReal ?? Number.NEGATIVE_INFINITY)) / 1000
+    const farmOk = elapsedFarm >= this.tuning.cooldownHours || elapsedFarm < 0
+    return farmOk && elapsedReal >= this.tuning.cooldownRealSeconds
   }
 
   /**
@@ -172,6 +211,7 @@ export class AITutorEngine {
       occurrences: occurrence,
       lastFiredHour: this.state.hour,
       lastFiredDay: this.state.day,
+      lastFiredReal: performance.now(),
     })
 
     const index = Math.min(occurrence - 1, lines.length - 1)

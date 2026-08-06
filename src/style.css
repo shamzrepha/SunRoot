@@ -3055,3 +3055,43 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
   }
   .ob-gate-card { padding: 26px 22px; }
 }
+
+/* ==========================================================================
+   ASSESSED REPORT
+   ========================================================================== */
+
+.report-screen { display: flex; flex-direction: column; gap: 16px; height: 100%; min-height: 0; }
+.report-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; flex: 1; min-height: 0; }
+
+.assess-panel, .evidence-panel {
+  padding: 18px; border-radius: 13px; overflow-y: auto;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.075);
+}
+.assess-source { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.06em; color: #7ab6dd; margin-bottom: 14px; }
+
+.rank-badge { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.assess-panel .rank-name { font-size: 22px; font-weight: 700; color: #7fe0a8; }
+.rank-ladder { display: flex; gap: 4px; }
+.rung { width: 20px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.12); }
+.rung.on { background: linear-gradient(90deg, #3f8fd6, #4fd67a); }
+.assess-panel .rank-xp { margin-left: auto; font-size: 12px; color: #e8c37a; font-variant-numeric: tabular-nums; }
+
+.assess-headline { margin: 0 0 9px; font-size: 19px; color: #eef5f0; }
+.assess-summary { margin: 0 0 18px; font-size: 13.5px; line-height: 1.65; color: #b9cbbf; }
+.assess-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+.assess-cols h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 7px; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: #8f9bad; }
+.assess-cols ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.assess-cols li { font-size: 12.5px; line-height: 1.5; color: #c3cfda; }
+.assess-cols div:first-child h3 { color: #7fe0a8; }
+.assess-cols div:last-child h3 { color: #e8a79f; }
+
+.assess-next { padding: 13px 15px; border-radius: 10px; background: rgba(122,197,255,0.1); border: 1px solid rgba(122,197,255,0.3); }
+.assess-next-tag { font-size: 9.5px; letter-spacing: 0.11em; color: #7ab6dd; margin-bottom: 5px; }
+.assess-next p { margin: 0; font-size: 13px; line-height: 1.55; color: #dbe7f1; }
+
+.evidence-panel h2 { margin: 0 0 11px; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8f9bad; }
+.evidence-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.evidence-table td { padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.06); color: #9fb0be; }
+.ev-value { text-align: right; color: #e2eaf1; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1000px) { .report-body { grid-template-columns: 1fr; } }
