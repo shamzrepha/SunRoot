@@ -45,7 +45,7 @@ const DEFAULTS: AIConfig = {
   endpoint: 'https://api.groq.com/openai/v1/chat/completions',
   model: 'llama-3.3-70b-versatile',
   apiKey: '',
-  proxyUrl: '',
+  proxyUrl: 'netlify/functions/ask.js',
 }
 
 export function loadConfig(): AIConfig {
