@@ -61,6 +61,28 @@ export function renderFieldHtml(): string {
   }
 
   const zoneOf = (z: string) => outdoor.filter((u) => placementFor(u.part).zone === z)
+
+  /**
+   * Lay a zone out without overlaps.
+   *
+   * The placement table gives a preferred position, but two components can want
+   * the same spot and a fixed table cannot know how many are installed. Items
+   * are sorted by preference, then walked left to right and pushed along
+   * whenever they would collide with the one before.
+   */
+  const layout = (units: FieldUnit[], startPct: number, endPct: number) => {
+    const sorted = [...units].sort(
+      (a, b) => placementFor(a.part).leftPct - placementFor(b.part).leftPct,
+    )
+    const gap = 2.5
+    let cursor = startPct
+    return sorted.map((u) => {
+      const pl = placementFor(u.part)
+      const x = Math.max(cursor, Math.min(pl.leftPct, endPct - pl.widthPct))
+      cursor = x + pl.widthPct + gap
+      return { unit: u, x, w: pl.widthPct }
+    })
+  }
   const roof = zoneOf('roof')
   const ground = zoneOf('ground')
   const soil = zoneOf('soil')
@@ -69,12 +91,17 @@ export function renderFieldHtml(): string {
   const item = (u: FieldUnit, extraClass = '') => {
     const pl = placementFor(u.part)
     if (isPipeRun(u.part)) return ''
+    // The label and state sit in their own absolutely-positioned strip beneath
+    // the ground line. If they took part in the normal flow they would push the
+    // artwork upward, and every component would appear to hover.
     return `
       <div class="sc-item ${extraClass}" data-field="${u.instanceId}"
            data-category="${u.part.category}" title="${u.part.name}">
         <div class="sc-art">${componentArt(u.part.id, u.part.category)}</div>
-        <div class="sc-label">${pl.label ?? shortName(u.part)}</div>
-        <div class="sc-state" data-state="${u.instanceId}"></div>
+        <div class="sc-caption">
+          <div class="sc-label">${pl.label ?? shortName(u.part)}</div>
+          <div class="sc-state" data-state="${u.instanceId}"></div>
+        </div>
       </div>`
   }
 
@@ -124,14 +151,20 @@ export function renderFieldHtml(): string {
       <div class="sc-backline">
         ${house}
         ${box}
-        ${ground.map((u) => `<div class="sc-anchor" style="--x:${placementFor(u.part).leftPct}%;--w:${placementFor(u.part).widthPct}%">${item(u)}</div>`).join('')}
+        ${layout(ground, 34, 97)
+          .map((g) => `<div class="sc-anchor" style="--x:${g.x}%;--w:${g.w}%">${item(g.unit)}</div>`)
+          .join('')}
       </div>
       <div class="sc-cables">${cables}</div>
       <div class="sc-fieldline">
-        ${field.map((u) => `<div class="sc-anchor" style="--x:${placementFor(u.part).leftPct}%;--w:${placementFor(u.part).widthPct}%">${item(u)}</div>`).join('')}
+        ${layout(field, 68, 98)
+          .map((g) => `<div class="sc-anchor" style="--x:${g.x}%;--w:${g.w}%">${item(g.unit)}</div>`)
+          .join('')}
       </div>
       <div class="sc-soilline">
-        ${soil.map((u) => `<div class="sc-anchor" style="--x:${placementFor(u.part).leftPct}%;--w:${placementFor(u.part).widthPct}%">${item(u, 'in-soil')}</div>`).join('')}
+        ${layout(soil, 40, 66)
+          .map((g) => `<div class="sc-anchor" style="--x:${g.x}%;--w:${g.w}%">${item(g.unit, 'in-soil')}</div>`)
+          .join('')}
       </div>
     </div>`
 }

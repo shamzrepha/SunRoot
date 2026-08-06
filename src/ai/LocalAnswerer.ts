@@ -179,9 +179,23 @@ export function answerLocally(question: string): string {
     if (h.match.test(question)) return h.reply()
   }
 
-  // No match: fall back to the most useful thing there is — the next step.
+  // No keyword matched. Saying "I am not sure what you are asking" is the least
+  // useful thing available, so instead the assistant reports what it can see and
+  // what the build needs next — which is almost always what was being asked.
   const g = nextGuidance()
-  return g
-    ? `I am not sure what you are asking, but the next thing your build needs is this: ${g.text}`
-    : 'I am not sure what you are asking. Try asking about your battery, your sensor readings, the pump, or what to wire next.'
+  const parts = graph.placed.map((p) => partOf(p.instanceId)?.name).filter(Boolean)
+  const where =
+    appState.screen === 'shed'
+      ? `You are in the Tool Shed with ${distinctOwned().length} kind(s) of part in your tray and ${remaining()} credits left.`
+      : appState.screen === 'circuit'
+        ? `You are at the workbench with ${parts.length} component(s) placed.`
+        : appState.screen === 'coding'
+          ? 'You are in the Coding Lab.'
+          : `The farm is at ${farm.soilMoisture.toFixed(0)}% moisture and ${farm.cropHealth.toFixed(0)}% crop health.`
+
+  return [
+    where,
+    g ? `The next thing your build needs: ${g.text}` : 'Your build has everything it needs right now.',
+    'Ask me about your battery, your sensor readings, the pump, what to buy, or what to wire next.',
+  ].join(' ')
 }

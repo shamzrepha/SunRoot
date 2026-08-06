@@ -52,7 +52,8 @@ export function mountAssistantDock() {
           <div class="dock-sub" id="dockSub"></div>
         </div>
         <div class="dock-actions">
-          <button class="dock-icon" id="dockSettings" aria-label="AI settings">${icon('workshop', 14)}</button>
+          <span class="dock-state" id="dockState" title="Connection status"></span>
+        <button class="dock-icon" id="dockSettings" aria-label="AI settings">${icon('workshop', 14)}</button>
           <button class="dock-icon" id="dockClose" aria-label="Close">${icon('close', 14)}</button>
         </div>
       </header>
@@ -86,7 +87,11 @@ export function mountAssistantDock() {
           A key entered here is stored in this browser and is visible to anyone with access
           to this machine. For a shared deployment use a proxy so the key stays server-side.
         </p>
-        <button class="primary-button small" id="cfgSave">Save</button>
+        <div class="dock-cfg-actions">
+          <button class="primary-button small" id="cfgSave">Save</button>
+          <button class="ghost-button small" id="cfgTest">Test connection</button>
+        </div>
+        <p class="dock-result" id="cfgResult" hidden></p>
       </div>
     </section>
   `
@@ -143,6 +148,26 @@ export function mountAssistantDock() {
       : 'Cleared. I am running on built-in rules — still specific to your build, just less conversational.')
   })
 
+  // A live round-trip, so a misconfigured key is obvious rather than silently
+  // degrading to offline answers that look like the model is simply unhelpful.
+  dock.querySelector('#cfgTest')!.addEventListener('click', async () => {
+    const out = dock!.querySelector<HTMLElement>('#cfgResult')!
+    out.hidden = false
+    out.className = 'dock-result'
+    out.textContent = 'Testing…'
+    const res = await ask('Reply with exactly: connection ok')
+    if (res.source === 'model') {
+      out.className = 'dock-result ok'
+      out.textContent = `Model responded: "${res.text.slice(0, 60)}"`
+    } else {
+      out.className = 'dock-result bad'
+      out.textContent =
+        'No model response — answers are coming from the built-in rules. ' +
+        'Check the key, or the proxy URL if you are using one.'
+    }
+    refreshSub()
+  })
+
   function fillSettings() {
     const c = loadConfig()
     ;(dock!.querySelector('#cfgEndpoint') as HTMLInputElement).value = c.endpoint
@@ -152,8 +177,16 @@ export function mountAssistantDock() {
   }
 
   function refreshSub() {
+    const live = isLiveAI()
     dock!.querySelector('#dockSub')!.textContent =
-      `${currentMode().label} mode · ${isLiveAI() ? 'model connected' : 'offline rules'}`
+      `${currentMode().label} mode · ${live ? 'model configured' : 'offline rules — no model connected'}`
+    const dot = dock!.querySelector<HTMLElement>('#dockState')
+    if (dot) {
+      dot.className = `dock-state ${live ? 'live' : 'offline'}`
+      dot.title = live
+        ? 'A model is configured. Use Test connection to confirm it responds.'
+        : 'No model configured — answering from built-in rules.'
+    }
   }
 
   function greet() {
