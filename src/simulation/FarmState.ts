@@ -81,16 +81,16 @@ export const CONFIG = {
    * two or three times daily, so the drain is set for roughly 120 points of
    * loss across a day and irrigation is fast enough to answer it in seconds.
    */
-  irrigationRatePerSecond: 9,
-  evaporationPerSecond: 3.2,
+  irrigationRatePerSecond: 14,
+  evaporationPerSecond: 7.2,
   healthyMoistureMin: 30,
   healthyMoistureMax: 70,
   dryStressBelow: 25,
   overwaterAbove: 85,
   /** Recovery is slower than damage, but not so slow that a rescue is invisible. */
   healthGainPerSecond: 1.4,
-  healthDryLossPerSecond: 1.6,
-  healthOverwaterLossPerSecond: 0.9,
+  healthDryLossPerSecond: 2.6,
+  healthOverwaterLossPerSecond: 1.9,
   hoursPerRealSecond: 0.5 / 60,
 
   // --- shared electrical constants ---
