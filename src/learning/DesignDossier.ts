@@ -37,6 +37,11 @@ export function captureProgram(source: string, stats: ProgramStats) {
   programStats = stats
 }
 
+/** Structure of the compiled program, or null if none has been written. */
+export function programStructure(): ProgramStats | null {
+  return programStats
+}
+
 export function hasProgram(): boolean {
   return programSource.trim().length > 0
 }

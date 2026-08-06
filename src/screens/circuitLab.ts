@@ -28,6 +28,7 @@ import { sfx } from '../game/sound'
 import { assistant } from '../ai/Assistant'
 import { observeCircuit } from '../learning/EvidenceCollector'
 import { noteAction } from '../learning/ContextBuilder'
+import { computeMetrics } from '../learning/DesignMetrics'
 import { nextGuidance, remainingSteps } from '../learning/ContextualTutor'
 import { MODES, currentMode, setMode } from '../learning/LearningModes'
 import type { ModeId } from '../learning/LearningModes'
@@ -93,6 +94,7 @@ export function renderCircuitLab(root: HTMLElement, onContinue: () => void, onBa
             ).join('')}
           </div>
 
+          <div class="live-score" id="liveScore"></div>
           <div class="coach" id="coachPanel"></div>
 
           <h2>Diagnostics</h2>
@@ -525,7 +527,39 @@ export function renderCircuitLab(root: HTMLElement, onContinue: () => void, onBa
    * The coach reads the live graph after every edit, so its advice is always
    * about the circuit as it stands rather than a script written in advance.
    */
+  /**
+   * The running score. Recomputed on every edit, so a student sees tidiness
+   * fall the moment they leave a part dangling and correctness rise when they
+   * fix a fault — rather than discovering it at the end.
+   */
+  function renderLiveScore() {
+    const el = root.querySelector<HTMLElement>('#liveScore')
+    if (!el) return
+    const m = computeMetrics()
+    if (m.overall === null) {
+      el.innerHTML = `<div class="ls-empty">Your design score appears here as you build.</div>`
+      return
+    }
+    el.innerHTML = `
+      <div class="ls-head">
+        <span class="ls-tag">DESIGN SCORE</span>
+        <span class="ls-value ${m.overall >= 75 ? 'high' : m.overall < 45 ? 'low' : ''}">${m.overall}</span>
+      </div>
+      <div class="ls-dims">
+        ${m.dimensions
+          .filter((d) => d.value !== null)
+          .map(
+            (d) => `<div class="ls-dim" title="${d.notes.join(' · ')}">
+              <span>${d.label}</span>
+              <span class="ls-num">${d.value}</span>
+            </div>`,
+          )
+          .join('')}
+      </div>`
+  }
+
   function renderCoach() {
+    renderLiveScore()
     const g = nextGuidance()
     const mode = currentMode()
 

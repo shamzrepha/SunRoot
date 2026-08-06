@@ -114,14 +114,12 @@ export function hasCategory(category: CatalogPart['category']): boolean {
  * the consequences surface in the circuit lab and on the farm rather than here.
  */
 export function canProceed(): { ok: boolean; reason?: string } {
+  // The only genuine requirement is something to run the program on. A
+  // breadboard is one way to make connections, not the way — parts can be wired
+  // pin to pin directly, and insisting otherwise would be prescribing an
+  // architecture in a sandbox built to avoid exactly that.
   if (!hasCategory('controllers')) {
     return { ok: false, reason: 'You need something to run your program.' }
-  }
-  const wiring = distinctOwned().some(
-    (x) => x.part.category === 'prototyping' && x.part.id !== 'terminalBlock',
-  )
-  if (!wiring) {
-    return { ok: false, reason: 'You need some way to make connections.' }
   }
   return { ok: true }
 }

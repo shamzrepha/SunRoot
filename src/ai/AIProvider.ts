@@ -125,6 +125,14 @@ export interface AskResult {
   text: string
   /** Whether a language model answered, or the offline rules did. */
   source: 'model' | 'local'
+  /** Why the model was not used, when it was not. */
+  reason?: string
+}
+
+/** The last failure, so the settings panel can explain itself. */
+let lastFailure = ''
+export function lastAIFailure(): string {
+  return lastFailure
 }
 
 /** Ask the assistant a question. Never throws — it degrades to local rules. */
@@ -147,6 +155,7 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
     // A proxy holds its own credentials; only the direct path sends a key.
     if (!cfg.proxyUrl && cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
 
+    lastFailure = ''
     const res = await fetch(url, {
       method: 'POST',
       headers,
@@ -159,10 +168,22 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
     })
 
     if (!res.ok) {
-      const detail = res.status === 401 ? 'the key was rejected' : `HTTP ${res.status}`
+      const body = await res.text().catch(() => '')
+      const detail =
+        res.status === 401
+          ? 'the API key was rejected (401). Check the key, or that it is set as GROQ_API_KEY on the server if you are using the proxy.'
+          : res.status === 404
+            ? `nothing is listening at ${url} (404). If this is the Netlify proxy, the function may not be deployed — check that netlify/functions/ask.js is committed and that netlify.toml has functions = "netlify/functions".`
+            : res.status === 400
+              ? `the request was rejected (400). The model name "${cfg.model}" may not exist at this endpoint. ${body.slice(0, 160)}`
+              : res.status === 429
+                ? 'rate limit reached (429). Wait a moment and try again.'
+                : `HTTP ${res.status}. ${body.slice(0, 160)}`
+      lastFailure = detail
       return {
-        text: `${answerLocally(question)}\n\n(Answered offline — ${detail}.)`,
+        text: `${answerLocally(question)}\n\n(Answered offline — ${detail})`,
         source: 'local',
+        reason: detail,
       }
     }
 
@@ -171,10 +192,19 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
     if (!text) return { text: answerLocally(question), source: 'local' }
 
     return { text: text.trim(), source: 'model' }
-  } catch {
+  } catch (err) {
+    // A browser fetch that fails outright is almost always CORS: most model
+    // providers refuse requests sent straight from a web page, which is exactly
+    // what the serverless proxy exists to avoid.
+    const message = (err as Error)?.message ?? 'unknown error'
+    const detail = cfg.proxyUrl
+      ? `the proxy at ${cfg.proxyUrl} could not be reached (${message}). On a local dev server the Netlify function does not exist — it only works on the deployed site, or under "netlify dev".`
+      : `the request never completed (${message}). This is usually CORS: browsers are blocked from calling model APIs directly. Use the proxy URL /.netlify/functions/ask instead of an API key.`
+    lastFailure = detail
     return {
-      text: `${answerLocally(question)}\n\n(Answered offline — the model could not be reached.)`,
+      text: `${answerLocally(question)}\n\n(Answered offline — ${detail})`,
       source: 'local',
+      reason: detail,
     }
   }
 }

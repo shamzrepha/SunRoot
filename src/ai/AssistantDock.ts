@@ -11,7 +11,7 @@
 // asked on the farm about a decision made on the bench.
 // ---------------------------------------------------------------------------
 
-import { ask, isLiveAI, loadConfig, saveConfig } from './AIProvider'
+import { ask, isLiveAI, lastAIFailure, loadConfig, saveConfig } from './AIProvider'
 import type { Turn } from './AIProvider'
 import { getMood, setMood, show as speakLine } from './Assistant'
 import type { Mood } from './Assistant'
@@ -75,6 +75,13 @@ export function mountAssistantDock() {
           Connect a language model for open conversation. Without one the assistant still
           answers from the live simulation using built-in rules — offline and free.
         </p>
+        <p class="dock-note recommend">
+          <strong>Use the proxy, not the key field.</strong> Browsers block direct calls to
+          model APIs, so an API key entered here will usually fail with a CORS error even
+          when the key is valid. Deploy, set GROQ_API_KEY in your Netlify environment
+          variables, and put the proxy path below.
+        </p>
+        <button class="ghost-button small" id="cfgUseProxy">Use the Netlify proxy</button>
         <label class="dock-field"><span>Endpoint</span>
           <input id="cfgEndpoint" type="text" placeholder="https://api.groq.com/openai/v1/chat/completions"></label>
         <label class="dock-field"><span>Model</span>
@@ -135,12 +142,18 @@ export function mountAssistantDock() {
   })
 
   dock.querySelector('#cfgSave')!.addEventListener('click', () => {
+    const val = (id: string) =>
+      (dock!.querySelector(id) as HTMLInputElement).value.trim()
+    const defaults = loadConfig()
     saveConfig({
-      endpoint: (dock!.querySelector('#cfgEndpoint') as HTMLInputElement).value.trim() || undefined,
-      model: (dock!.querySelector('#cfgModel') as HTMLInputElement).value.trim() || undefined,
-      apiKey: (dock!.querySelector('#cfgKey') as HTMLInputElement).value.trim(),
-      proxyUrl: (dock!.querySelector('#cfgProxy') as HTMLInputElement).value.trim(),
-    } as never)
+      // An empty field means "leave the default alone", never "set it to
+      // nothing" — the previous version wrote undefined over the endpoint and
+      // the request then had no URL to go to.
+      endpoint: val('#cfgEndpoint') || defaults.endpoint,
+      model: val('#cfgModel') || defaults.model,
+      apiKey: val('#cfgKey'),
+      proxyUrl: val('#cfgProxy'),
+    })
     settings.hidden = true
     refreshSub()
     append('assistant', isLiveAI()
@@ -158,14 +171,17 @@ export function mountAssistantDock() {
     const res = await ask('Reply with exactly: connection ok')
     if (res.source === 'model') {
       out.className = 'dock-result ok'
-      out.textContent = `Model responded: "${res.text.slice(0, 60)}"`
+      out.textContent = `Connected. Model replied: "${res.text.slice(0, 60)}"`
     } else {
       out.className = 'dock-result bad'
-      out.textContent =
-        'No model response — answers are coming from the built-in rules. ' +
-        'Check the key, or the proxy URL if you are using one.'
+      out.textContent = res.reason || lastAIFailure() || 'No model configured.'
     }
     refreshSub()
+  })
+
+  dock.querySelector('#cfgUseProxy')!.addEventListener('click', () => {
+    ;(dock!.querySelector('#cfgProxy') as HTMLInputElement).value = '/.netlify/functions/ask'
+    ;(dock!.querySelector('#cfgKey') as HTMLInputElement).value = ''
   })
 
   function fillSettings() {

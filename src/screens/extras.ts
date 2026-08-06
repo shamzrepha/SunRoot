@@ -132,11 +132,27 @@ export function renderReport(root: HTMLElement) {
               (r, i) => `<span class="rung ${i <= rankIndex ? 'on' : ''}" title="${r}"></span>`,
             ).join('')}
           </div>
-          <div class="rank-xp">${a.xp} XP awarded</div>
+          <div class="rank-xp">${a.overall !== null ? `${a.overall}/100 · ` : ''}${a.xp} XP</div>
         </div>
 
         <h2 class="assess-headline">${a.headline}</h2>
         <p class="assess-summary">${a.summary}</p>
+
+        <div class="dim-grid">
+          ${a.dimensions
+            .map(
+              (d) => `
+            <div class="dim ${d.value === null ? 'unmeasured' : d.value >= 75 ? 'high' : d.value < 45 ? 'low' : ''}">
+              <div class="dim-head">
+                <span class="dim-label">${d.label}</span>
+                <span class="dim-value">${d.value === null ? '—' : d.value}</span>
+              </div>
+              <div class="dim-bar"><div class="dim-fill" style="width:${d.value ?? 0}%"></div></div>
+              <ul class="dim-notes">${d.notes.slice(0, 3).map((n) => `<li>${n}</li>`).join('')}</ul>
+            </div>`,
+            )
+            .join('')}
+        </div>
 
         <div class="assess-cols">
           <div>

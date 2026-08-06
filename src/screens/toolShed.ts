@@ -195,7 +195,7 @@ export function renderToolShed(root: HTMLElement, onProceed: () => void) {
     const gate = canProceed()
     proceed.disabled = !gate.ok
     note.textContent = gate.ok
-      ? 'Anything you did not buy will simply not exist in the circuit lab.'
+      ? 'Anything you did not buy will not exist on the bench. There is no required parts list.'
       : (gate.reason ?? '')
   }
 

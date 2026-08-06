@@ -28,6 +28,8 @@ import { alwaysOnLoads, topology } from '../simulation/PowerSystem'
 import { farm } from '../simulation/FarmState'
 import { recentActions } from './ContextBuilder'
 import { describeCircuit, describeProgram } from './DesignDossier'
+import { computeMetrics, metricsDigest } from './DesignMetrics'
+import type { Dimension } from './DesignMetrics'
 
 export type Rank =
   | 'Explorer'
@@ -48,6 +50,10 @@ export const RANK_ORDER: Rank[] = [
 
 export interface Assessment {
   rank: Rank
+  /** Per-dimension scores, measured locally and optionally revised by the model. */
+  dimensions: Dimension[]
+  /** Weighted overall out of 100. */
+  overall: number | null
   /** Experience awarded for this assessment, 0–500. */
   xp: number
   /** One-line verdict. */
@@ -137,6 +143,9 @@ function dossier(): string {
     : 'No completed rescues.'
 
   return [
+    'MEASURED DESIGN SCORES (computed from their build, before your assessment)',
+    metricsDigest(),
+    '',
     'THE CIRCUIT THEY BUILT',
     describeCircuit(),
     '',
@@ -169,8 +178,13 @@ Your task is to assess the engineering — the design choices and the logic, not
   "summary": string, 2-3 sentences citing their actual numbers,
   "strengths": array of 1-3 short strings,
   "gaps": array of 1-3 short strings,
-  "nextStep": string, one concrete thing to attempt next
+  "nextStep": string, one concrete thing to attempt next,
+  "adjustments": optional object mapping dimension ids to a number from -15 to 15, e.g. {"creativity": 8}
 }
+
+You are given six measured dimensions: electrical correctness, system thinking, efficiency, creativity, tidiness, robustness. You may revise any of them by up to 15 points in either direction if the circuit or program justifies it — and say why in your summary. Do not invent new dimensions.
+
+There is NO required parts list and NO required architecture. A student who wires point to point without a breadboard, or uses a MOSFET rather than a relay, has not made a mistake. Judge whether their choices work together, not whether they match a template.
 
 ASSESS THESE THINGS:
 - Component choice: are the parts sensibly matched to the load and to each other? Is the array sized for the daily demand? Is the controller's logic voltage compatible with the sensors chosen?
@@ -191,27 +205,44 @@ RULES:
 /** Ask the model to assess. Falls back to the local rubric on any failure. */
 export async function assess(): Promise<Assessment> {
   const evidence = buildEvidence()
+  const metrics = computeMetrics()
 
-  if (!isLiveAI()) return { ...localAssess(), evidence, source: 'local' }
+  if (!isLiveAI()) {
+    return { ...localAssess(), evidence, source: 'local', ...metrics }
+  }
 
   try {
     const res = await ask(
       `${SYSTEM}\n\n---\n\n${dossier()}`,
       [],
     )
-    if (res.source !== 'model') return { ...localAssess(), evidence, source: 'local' }
+    if (res.source !== 'model') return { ...localAssess(), evidence, source: 'local', ...metrics }
 
     const parsed = parseAssessment(res.text)
-    if (!parsed) return { ...localAssess(), evidence, source: 'local' }
+    if (!parsed) return { ...localAssess(), evidence, source: 'local', ...metrics }
 
-    return { ...parsed, evidence, source: 'model' }
+    // The model may revise a dimension, within bounds, and must justify it.
+    const revised = metrics.dimensions.map((d) => {
+      const adj = Number(lastAdjustments[d.id])
+      if (!Number.isFinite(adj) || d.value === null) return d
+      const bounded = Math.max(-15, Math.min(15, adj))
+      return {
+        ...d,
+        value: Math.max(0, Math.min(100, d.value + bounded)),
+        notes: bounded ? [...d.notes, `Assessor adjusted by ${bounded > 0 ? '+' : ''}${bounded}`] : d.notes,
+      }
+    })
+
+    return { ...parsed, evidence, source: 'model', dimensions: revised, overall: metrics.overall }
   } catch {
-    return { ...localAssess(), evidence, source: 'local' }
+    return { ...localAssess(), evidence, source: 'local', ...metrics }
   }
 }
 
+let lastAdjustments: Record<string, number> = {}
+
 /** Models sometimes wrap JSON in prose or fences; recover it either way. */
-function parseAssessment(raw: string): Omit<Assessment, 'evidence' | 'source'> | null {
+function parseAssessment(raw: string): Omit<Assessment, 'evidence' | 'source' | 'dimensions' | 'overall'> | null {
   try {
     const cleaned = raw.replace(/```json|```/g, '').trim()
     const start = cleaned.indexOf('{')
@@ -219,6 +250,7 @@ function parseAssessment(raw: string): Omit<Assessment, 'evidence' | 'source'> |
     if (start < 0 || end < 0) return null
 
     const obj = JSON.parse(cleaned.slice(start, end + 1))
+    lastAdjustments = (obj.adjustments && typeof obj.adjustments === 'object') ? obj.adjustments : {}
     const rank: Rank = RANK_ORDER.includes(obj.rank) ? obj.rank : 'Explorer'
     const xp = Math.max(0, Math.min(500, Number(obj.xp) || 0))
 
@@ -240,7 +272,7 @@ function parseAssessment(raw: string): Omit<Assessment, 'evidence' | 'source'> |
  * The offline rubric. Deterministic, and deliberately harder to satisfy than a
  * participation trophy — rank tracks demonstrated competence.
  */
-function localAssess(): Omit<Assessment, 'evidence' | 'source'> {
+function localAssess(): Omit<Assessment, 'evidence' | 'source' | 'dimensions' | 'overall'> {
   const runs = score.runs
   const best = runs[0]
   const mastery = overallMastery()

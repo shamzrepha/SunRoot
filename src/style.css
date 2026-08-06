@@ -3111,3 +3111,38 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
 .dock-result.ok { color: #7fe0a8; }
 .dock-result.bad { color: #e8c37a; }
 .dock-result[hidden] { display: none; }
+
+/* ---- live design score ---- */
+.live-score { padding: 12px 13px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+.ls-empty { font-size: 11.5px; color: #7f8a9b; line-height: 1.5; }
+.ls-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+.ls-tag { font-size: 9px; letter-spacing: 0.11em; color: #8f9bad; }
+.ls-value { font-size: 26px; font-weight: 700; color: #e8c37a; line-height: 1; font-variant-numeric: tabular-nums; }
+.ls-value.high { color: #7fe0a8; } .ls-value.low { color: #e5776a; }
+.ls-dims { display: flex; flex-direction: column; gap: 3px; }
+.ls-dim { display: flex; justify-content: space-between; font-size: 10.8px; color: #91a0ae; }
+.ls-num { color: #dbe4ec; font-variant-numeric: tabular-nums; }
+
+/* ---- report dimensions ---- */
+.dim-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 11px; margin-bottom: 18px; }
+.dim { padding: 11px 12px; border-radius: 9px; background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.07); }
+.dim.high { border-color: rgba(79,214,122,0.35); background: rgba(79,214,122,0.06); }
+.dim.low { border-color: rgba(226,96,84,0.3); background: rgba(226,96,84,0.05); }
+.dim.unmeasured { opacity: 0.5; }
+.dim-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.dim-label { font-size: 12px; color: #dbe4ec; font-weight: 600; }
+.dim-value { font-size: 17px; font-weight: 700; color: #e2eaf1; font-variant-numeric: tabular-nums; }
+.dim.high .dim-value { color: #7fe0a8; } .dim.low .dim-value { color: #e8a79f; }
+.dim-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden; margin-bottom: 7px; }
+.dim-fill { height: 100%; background: linear-gradient(90deg, #3f8fd6, #4fd67a); }
+.dim.low .dim-fill { background: linear-gradient(90deg, #e0a04a, #e5643f); }
+.dim-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.dim-notes li { font-size: 10.6px; line-height: 1.45; color: #8f9bad; }
+/* The zone layers span the whole stage so their children can be positioned
+   against one horizon. They must not swallow clicks meant for the things
+   inside them — which is what was stopping the control box from opening. */
+.sc-stage, .sc-backline, .sc-fieldline, .sc-soilline, .sc-cables { pointer-events: none; }
+.sc-anchor, .sc-item, .sc-house, .sc-box { pointer-events: auto; }
+.dock-note.recommend { color: #e8c37a; padding: 8px 10px; border-radius: 7px;
+  background: rgba(224,160,74,0.1); border: 1px solid rgba(224,160,74,0.28); }
+.dock-note.recommend strong { color: #f0d49a; display: block; margin-bottom: 3px; }
