@@ -11,7 +11,7 @@
 // asked on the farm about a decision made on the bench.
 // ---------------------------------------------------------------------------
 
-import { ask, isLiveAI, lastAIFailure, loadConfig, saveConfig } from './AIProvider'
+import { ask, isLiveAI, lastAIFailure, loadConfig, resetAIAvailability } from './AIProvider'
 import type { Turn } from './AIProvider'
 import { getMood, setMood, show as speakLine } from './Assistant'
 import type { Mood } from './Assistant'
@@ -53,7 +53,6 @@ export function mountAssistantDock() {
         </div>
         <div class="dock-actions">
           <span class="dock-state" id="dockState" title="Connection status"></span>
-        <button class="dock-icon" id="dockSettings" aria-label="AI settings">${icon('workshop', 14)}</button>
           <button class="dock-icon" id="dockClose" aria-label="Close">${icon('close', 14)}</button>
         </div>
       </header>
@@ -71,34 +70,9 @@ export function mountAssistantDock() {
       </form>
 
       <div class="dock-settings" id="dockSettingsPanel" hidden>
-        <p class="dock-note">
-          Connect a language model for open conversation. Without one the assistant still
-          answers from the live simulation using built-in rules — offline and free.
-        </p>
-        <p class="dock-note recommend">
-          <strong>Use the proxy, not the key field.</strong> Browsers block direct calls to
-          model APIs, so an API key entered here will usually fail with a CORS error even
-          when the key is valid. Deploy, set GROQ_API_KEY in your Netlify environment
-          variables, and put the proxy path below.
-        </p>
-        <button class="ghost-button small" id="cfgUseProxy">Use the Netlify proxy</button>
-        <label class="dock-field"><span>Endpoint</span>
-          <input id="cfgEndpoint" type="text" placeholder="https://api.groq.com/openai/v1/chat/completions"></label>
-        <label class="dock-field"><span>Model</span>
-          <input id="cfgModel" type="text" placeholder="llama-3.3-70b-versatile"></label>
-        <label class="dock-field"><span>API key</span>
-          <input id="cfgKey" type="password" placeholder="gsk_…"></label>
-        <label class="dock-field"><span>Or proxy URL</span>
-          <input id="cfgProxy" type="text" placeholder="/.netlify/functions/ask"></label>
-        <p class="dock-warn">
-          A key entered here is stored in this browser and is visible to anyone with access
-          to this machine. For a shared deployment use a proxy so the key stays server-side.
-        </p>
-        <div class="dock-cfg-actions">
-          <button class="primary-button small" id="cfgSave">Save</button>
-          <button class="ghost-button small" id="cfgTest">Test connection</button>
-        </div>
-        <p class="dock-result" id="cfgResult" hidden></p>
+        <p class="dock-note" id="diagText"></p>
+        <button class="ghost-button small" id="cfgTest">Re-test connection</button>
+      </div>
       </div>
     </section>
   `
@@ -126,10 +100,6 @@ export function mountAssistantDock() {
 
   bubble.addEventListener('click', () => setOpen(!open))
   dock.querySelector('#dockClose')!.addEventListener('click', () => setOpen(false))
-  dock.querySelector('#dockSettings')!.addEventListener('click', () => {
-    settings.hidden = !settings.hidden
-    if (!settings.hidden) fillSettings()
-  })
 
   dock.querySelectorAll<HTMLButtonElement>('[data-ask]').forEach((b) => {
     b.addEventListener('click', () => submit(b.dataset.ask!))
@@ -141,67 +111,54 @@ export function mountAssistantDock() {
     if (q) submit(q)
   })
 
-  dock.querySelector('#cfgSave')!.addEventListener('click', () => {
-    const val = (id: string) =>
-      (dock!.querySelector(id) as HTMLInputElement).value.trim()
-    const defaults = loadConfig()
-    saveConfig({
-      // An empty field means "leave the default alone", never "set it to
-      // nothing" — the previous version wrote undefined over the endpoint and
-      // the request then had no URL to go to.
-      endpoint: val('#cfgEndpoint') || defaults.endpoint,
-      model: val('#cfgModel') || defaults.model,
-      apiKey: val('#cfgKey'),
-      proxyUrl: val('#cfgProxy'),
-    })
-    settings.hidden = true
-    refreshSub()
-    append('assistant', isLiveAI()
-      ? 'Connected. Ask me anything about your build and I will answer against your actual circuit.'
-      : 'Cleared. I am running on built-in rules — still specific to your build, just less conversational.')
-  })
 
   // A live round-trip, so a misconfigured key is obvious rather than silently
   // degrading to offline answers that look like the model is simply unhelpful.
-  dock.querySelector('#cfgTest')!.addEventListener('click', async () => {
-    const out = dock!.querySelector<HTMLElement>('#cfgResult')!
-    out.hidden = false
-    out.className = 'dock-result'
-    out.textContent = 'Testing…'
-    const res = await ask('Reply with exactly: connection ok')
-    if (res.source === 'model') {
-      out.className = 'dock-result ok'
-      out.textContent = `Connected. Model replied: "${res.text.slice(0, 60)}"`
-    } else {
-      out.className = 'dock-result bad'
-      out.textContent = res.reason || lastAIFailure() || 'No model configured.'
+  // Developer diagnostic: Ctrl+Shift+A. Deliberately not a visible control —
+  // there is nothing here for a student to set, and a settings panel invites
+  // them to break something that already works.
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault()
+      setOpen(true)
+      settings.hidden = !settings.hidden
+      if (!settings.hidden) showDiagnostic()
     }
+  })
+
+  function showDiagnostic() {
+    const c = loadConfig()
+    const el = dock!.querySelector<HTMLElement>('#diagText')!
+    el.textContent =
+      `Route: ${c.proxyUrl || c.endpoint}. ` +
+      `Model: ${c.model}. ` +
+      `Status: ${isLiveAI() ? 'assumed reachable' : 'unreachable'}. ` +
+      (lastAIFailure() ? `Last failure: ${lastAIFailure()}` : 'No failures recorded.')
+  }
+
+  dock.querySelector('#cfgTest')!.addEventListener('click', async () => {
+    const el = dock!.querySelector<HTMLElement>('#diagText')!
+    resetAIAvailability()
+    el.textContent = 'Testing…'
+    const res = await ask('Reply with exactly: connection ok')
+    el.textContent =
+      res.source === 'model'
+        ? `Connected. Model replied: "${res.text.slice(0, 60)}"`
+        : res.reason || lastAIFailure() || 'Unreachable.'
     refreshSub()
   })
 
-  dock.querySelector('#cfgUseProxy')!.addEventListener('click', () => {
-    ;(dock!.querySelector('#cfgProxy') as HTMLInputElement).value = '/.netlify/functions/ask'
-    ;(dock!.querySelector('#cfgKey') as HTMLInputElement).value = ''
-  })
-
-  function fillSettings() {
-    const c = loadConfig()
-    ;(dock!.querySelector('#cfgEndpoint') as HTMLInputElement).value = c.endpoint
-    ;(dock!.querySelector('#cfgModel') as HTMLInputElement).value = c.model
-    ;(dock!.querySelector('#cfgKey') as HTMLInputElement).value = c.apiKey
-    ;(dock!.querySelector('#cfgProxy') as HTMLInputElement).value = c.proxyUrl
-  }
 
   function refreshSub() {
     const live = isLiveAI()
     dock!.querySelector('#dockSub')!.textContent =
-      `${currentMode().label} mode · ${live ? 'model configured' : 'offline rules — no model connected'}`
+      `${currentMode().label} mode · ${live ? 'online' : 'offline'}`
     const dot = dock!.querySelector<HTMLElement>('#dockState')
     if (dot) {
       dot.className = `dock-state ${live ? 'live' : 'offline'}`
       dot.title = live
-        ? 'A model is configured. Use Test connection to confirm it responds.'
-        : 'No model configured — answering from built-in rules.'
+        ? 'Connected to the field assistant.'
+        : 'Working offline from built-in knowledge of your build.'
     }
   }
 
@@ -235,6 +192,9 @@ export function mountAssistantDock() {
     history.push({ role: 'user', content: question }, { role: 'assistant', content: res.text })
 
     // The face reacts to what was said, which is how the mood stays honest.
+    // Availability may have changed during that call, so the badge is refreshed
+    // rather than left showing a state that is no longer true.
+    refreshSub()
     setMood(/empty|not |cannot|problem|wrong|fault/i.test(res.text) ? 'concerned' : 'pleased')
     speakLine(res.text, getMood())
     busy = false

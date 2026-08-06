@@ -25,6 +25,16 @@ import { fullContext } from '../learning/ContextBuilder'
 import { currentMode } from '../learning/LearningModes'
 import { answerLocally } from './LocalAnswerer'
 
+/**
+ * Where the serverless function lives. Hardcoded on purpose: a student should
+ * never configure anything, and the path is fixed by Netlify regardless of
+ * where the file sits in the repository.
+ *
+ * The key is never here. It lives in the Netlify environment as GROQ_API_KEY
+ * and is read by the function server-side, so nothing secret reaches the browser.
+ */
+export const PROXY_PATH = '/.netlify/functions/ask'
+
 const STORE_KEY = 'sunroot.ai.config'
 
 export interface AIConfig {
@@ -45,7 +55,9 @@ const DEFAULTS: AIConfig = {
   endpoint: 'https://api.groq.com/openai/v1/chat/completions',
   model: 'llama-3.3-70b-versatile',
   apiKey: '',
-  proxyUrl: 'netlify/functions/ask.js',
+  // Always the deployed function. Overriding this is a developer action, not
+  // something the interface asks anyone to do.
+  proxyUrl: PROXY_PATH,
 }
 
 export function loadConfig(): AIConfig {
@@ -57,8 +69,35 @@ export function loadConfig(): AIConfig {
   }
 }
 
+/**
+ * Accept the several things people reasonably type when they mean "the Netlify
+ * function". The file path on disk and the URL Netlify serves it at are
+ * different strings, and confusing them produces a 404 that looks like a
+ * deployment failure rather than a typo.
+ */
+export function normaliseProxyUrl(raw: string): string {
+  const v = raw.trim()
+  if (!v) return ''
+
+  // A full URL, or an explicitly absolute path the user clearly meant.
+  if (/^https?:\/\//i.test(v)) return v
+
+  // Anything that mentions a netlify function resolves to the canonical path.
+  if (/netlify[\/\\]?functions?[\/\\]/i.test(v) || /^\/?\.?netlify/i.test(v)) {
+    const name = v.replace(/\.js$/i, '').split(/[\/\\]/).filter(Boolean).pop() || 'ask'
+    return `/.netlify/functions/${name}`
+  }
+
+  // A bare function name.
+  if (!v.includes('/')) return `/.netlify/functions/${v.replace(/\.js$/i, '')}`
+
+  // Some other path — make it root-relative so it is at least a valid request.
+  return v.startsWith('/') ? v : `/${v}`
+}
+
 export function saveConfig(c: Partial<AIConfig>) {
   const next = { ...loadConfig(), ...c }
+  if (typeof next.proxyUrl === 'string') next.proxyUrl = normaliseProxyUrl(next.proxyUrl)
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(next))
   } catch {
@@ -66,9 +105,26 @@ export function saveConfig(c: Partial<AIConfig>) {
   }
 }
 
+/**
+ * Whether a model is reachable.
+ *
+ * Optimistic until proven otherwise: the proxy is assumed to exist, because on
+ * the deployed site it does. One failed round trip flips this to false so the
+ * assistant stops retrying a route that is not there — which is what happens on
+ * a local dev server, where Netlify functions are not running.
+ */
+let proxyReachable: boolean | null = null
+
 export function isLiveAI(): boolean {
   const c = loadConfig()
-  return !!(c.proxyUrl || c.apiKey)
+  if (c.apiKey) return true
+  return proxyReachable !== false
+}
+
+/** Re-test a route that previously failed, e.g. after a deploy. */
+export function resetAIAvailability() {
+  proxyReachable = null
+  lastFailure = ''
 }
 
 export interface Turn {
@@ -121,6 +177,17 @@ function modeInstruction(id: string): string {
   }
 }
 
+/**
+ * The answer a student sees when the model is unreachable. It is the local
+ * answer and nothing else — a child cannot act on "HTTP 404", and appending it
+ * only makes a working assistant look broken. The reason is still returned for
+ * the developer diagnostic.
+ */
+function quiet(question: string, reason: string): string {
+  void reason
+  return answerLocally(question)
+}
+
 export interface AskResult {
   text: string
   /** Whether a language model answered, or the offline rules did. */
@@ -139,8 +206,9 @@ export function lastAIFailure(): string {
 export async function ask(question: string, history: Turn[] = []): Promise<AskResult> {
   const cfg = loadConfig()
 
-  if (!cfg.proxyUrl && !cfg.apiKey) {
-    return { text: answerLocally(question), source: 'local' }
+  // No route at all, or the only route is known to be missing.
+  if ((!cfg.proxyUrl && !cfg.apiKey) || (!cfg.apiKey && proxyReachable === false)) {
+    return { text: answerLocally(question), source: 'local', reason: lastFailure }
   }
 
   const messages = [
@@ -180,8 +248,9 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
                 ? 'rate limit reached (429). Wait a moment and try again.'
                 : `HTTP ${res.status}. ${body.slice(0, 160)}`
       lastFailure = detail
+      if (res.status === 404 && cfg.proxyUrl) proxyReachable = false
       return {
-        text: `${answerLocally(question)}\n\n(Answered offline — ${detail})`,
+        text: quiet(question, detail),
         source: 'local',
         reason: detail,
       }
@@ -191,6 +260,7 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
     const text: string | undefined = data?.choices?.[0]?.message?.content
     if (!text) return { text: answerLocally(question), source: 'local' }
 
+    proxyReachable = true
     return { text: text.trim(), source: 'model' }
   } catch (err) {
     // A browser fetch that fails outright is almost always CORS: most model
@@ -201,10 +271,7 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
       ? `the proxy at ${cfg.proxyUrl} could not be reached (${message}). On a local dev server the Netlify function does not exist — it only works on the deployed site, or under "netlify dev".`
       : `the request never completed (${message}). This is usually CORS: browsers are blocked from calling model APIs directly. Use the proxy URL /.netlify/functions/ask instead of an API key.`
     lastFailure = detail
-    return {
-      text: `${answerLocally(question)}\n\n(Answered offline — ${detail})`,
-      source: 'local',
-      reason: detail,
-    }
+    if (cfg.proxyUrl && !cfg.apiKey) proxyReachable = false
+    return { text: quiet(question, detail), source: 'local', reason: detail }
   }
 }

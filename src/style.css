@@ -3146,3 +3146,5 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
 .dock-note.recommend { color: #e8c37a; padding: 8px 10px; border-radius: 7px;
   background: rgba(224,160,74,0.1); border: 1px solid rgba(224,160,74,0.28); }
 .dock-note.recommend strong { color: #f0d49a; display: block; margin-bottom: 3px; }
+.dock-hint { margin: -3px 0 0; font-size: 10.2px; line-height: 1.5; color: #7f8a9b; }
+.dock-hint code { font-family: 'Courier New', monospace; color: #9fd3ef; background: rgba(255,255,255,0.06); padding: 0 3px; border-radius: 3px; }
