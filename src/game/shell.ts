@@ -5,6 +5,7 @@ import { sfx, setSoundEnabled, isSoundEnabled } from './sound'
 import type { Screen } from '../appState'
 
 export interface NavItem {
+  group?: string
   id: Screen
   label: string
   icon: string
@@ -84,25 +85,30 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
 }
 
 export function renderNav(items: NavItem[], active: Screen) {
-  const list = document.querySelector<HTMLElement>('#navList')
-  if (!list) return
-  list.innerHTML = items
-    .map(
-      (it) => `
+  const nav = document.querySelector<HTMLElement>('#navList')
+  if (!nav) return
+
+  // Items arrive already grouped; headings are emitted on each change of group
+  // so the build path reads as a sequence rather than a list of eleven things.
+  let lastGroup = ''
+  nav.innerHTML = items
+    .map((it) => {
+      const heading =
+        it.group && it.group !== lastGroup
+          ? `<div class="nav-group">${(lastGroup = it.group)}</div>`
+          : ''
+      return `${heading}
       <button class="nav-item ${it.id === active ? 'active' : ''} ${it.locked ? 'locked' : ''}"
               data-nav="${it.id}" ${it.locked ? 'disabled' : ''}>
         <span class="nav-icon">${it.icon}</span>
         <span>${it.label}</span>
         ${it.locked ? `<span class="nav-lock">${icon('lock', 13)}</span>` : ''}
       </button>`
-    )
+    })
     .join('')
 
-  list.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      sfx.click()
-      onNavigate?.(btn.dataset.nav as Screen)
-    })
+  nav.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((b) => {
+    b.addEventListener('click', () => onNavigate?.(b.dataset.nav as Screen))
   })
 }
 

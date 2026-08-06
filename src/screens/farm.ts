@@ -3,6 +3,7 @@ import { environmentController } from '../simulation/EnvironmentController'
 import { aiTutorEngine } from '../simulation/AITutorEngine'
 import { assistant, hide as hideAssistant } from '../ai/Assistant'
 import { pingAssistant } from '../ai/AssistantDock'
+import { hasSeenOnboarding } from '../ui/Onboarding'
 import { icon } from '../ui/icons'
 import { elapsedFarmHours, formatFarmTime, ratingFor, score, tickScore } from '../simulation/Scoreboard'
 import { observeRun } from '../learning/EvidenceCollector'
@@ -477,7 +478,9 @@ export function renderFarm(
   // ---------- §38 first-time crisis brief ----------
 
   const overlay = root.querySelector<HTMLElement>('#crisisOverlay')!
-  if (!graph.placed.length && !briefSeen) {
+  // The walkthrough covers this ground for a first-time visitor, so the older
+  // crisis card is only shown to someone who has already been through it.
+  if (!graph.placed.length && !briefSeen && hasSeenOnboarding()) {
     overlay.hidden = false
     briefSeen = true
     // The card already carries the briefing text. A second voice on top of it

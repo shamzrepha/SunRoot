@@ -9,6 +9,7 @@ import { renderTeacher } from './screens/teacher'
 import { renderAccessibility } from './screens/accessibility'
 import { initAccessibility } from './ui/Accessibility'
 import { mountAssistantDock } from './ai/AssistantDock'
+import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
 import { renderFarm, stopFarmLoop } from './screens/farm'
 import { renderTutor, renderReport, renderQuiz, renderRewards } from './screens/extras'
 import { mountShell, renderNav, renderHud, updateRankUi, transitionView } from './game/shell'
@@ -24,18 +25,21 @@ let shellMounted = false
 let hudTimer = 0
 
 function navItems(): NavItem[] {
+  // Grouped deliberately. Eleven flat items was the single biggest cause of
+  // "I opened it and did not know where to go" — the four that matter are the
+  // build loop, and everything else is progress the student can ignore.
   return [
-    { id: 'farm', label: 'Farm', icon: icon('farm') },
-    { id: 'shed', label: 'Tool shed', icon: icon('shed') },
-    { id: 'circuit', label: 'Circuit lab', icon: icon('circuit') },
-    { id: 'coding', label: 'Coding lab', icon: icon('code') },
-    { id: 'tutor', label: 'Tutor', icon: icon('tutor') },
-    { id: 'learning', label: 'Learning model', icon: icon('brain') },
-    { id: 'teacher', label: 'Class view', icon: icon('class') },
-    { id: 'access', label: 'Accessibility', icon: icon('access') },
-    { id: 'report', label: 'Report', icon: icon('report') },
-    { id: 'quiz', label: 'Learning check', icon: icon('quiz') },
-    { id: 'rewards', label: 'Rewards', icon: icon('rewards') },
+    { id: 'farm', label: 'Farm', icon: icon('farm'), group: 'Build' },
+    { id: 'shed', label: 'Tool shed', icon: icon('shed'), group: 'Build' },
+    { id: 'circuit', label: 'Circuit lab', icon: icon('circuit'), group: 'Build' },
+    { id: 'coding', label: 'Coding lab', icon: icon('code'), group: 'Build' },
+    { id: 'learning', label: 'Learning model', icon: icon('brain'), group: 'Progress' },
+    { id: 'quiz', label: 'Learning check', icon: icon('quiz'), group: 'Progress' },
+    { id: 'report', label: 'Report', icon: icon('report'), group: 'Progress' },
+    { id: 'rewards', label: 'Rewards', icon: icon('rewards'), group: 'Progress' },
+    { id: 'tutor', label: 'Tutor', icon: icon('tutor'), group: 'Progress' },
+    { id: 'teacher', label: 'Class view', icon: icon('class'), group: 'More' },
+    { id: 'access', label: 'Accessibility', icon: icon('access'), group: 'More' },
   ].map((n) => ({ ...n, id: n.id as Screen }))
 }
 
@@ -119,6 +123,15 @@ export function goTo(screen: Screen) {
       })
     } else if (screen === 'farm') {
       renderFarm(host, () => goTo('coding'), () => goTo('shed'), () => goTo('circuit'))
+      if (!hasSeenOnboarding() && !welcomeShown) {
+        welcomeShown = true
+        document.body.appendChild(
+          renderWelcomeGate(
+            () => startOnboarding(),
+            () => { /* they chose to explore; nothing further */ },
+          ),
+        )
+      }
 
     } else if (screen === 'learning') {
       renderLearning(host)
@@ -141,6 +154,7 @@ export function goTo(screen: Screen) {
 // Each scripted line fires once per session so the assistant introduces a
 // screen without nagging on every revisit.
 const spoken = new Set<string>()
+let welcomeShown = false
 function narrateOnce(key: string, line: string, delay = 800) {
   if (spoken.has(key)) return
   spoken.add(key)
