@@ -58,13 +58,6 @@ export interface FarmState {
 // Tunable physical constants, kept in one place so the causal chain is
 // readable and adjustable without hunting through the update function.
 export const CONFIG = {
-  panelPeakWatts: 600,
-  /**
-   * Retained only so older callers keep type-checking. Charging now goes
-   * through the watt-hour model below, which is the physically honest one.
-   */
-  chargeRatePerWatt: 0.0008,
-  pumpDrainPerSecond: 2.5,
 
   // --- §10 energy accounting -------------------------------------------
   // Battery percentage is a *display* of stored energy, never the quantity
@@ -72,13 +65,6 @@ export const CONFIG = {
   // numbers correspond to hardware a student could actually buy, and so the
   // day/night cycle produces a believable state of charge rather than a bar
   // that empties in forty seconds.
-  pumpPowerWatts: 90,
-  /**
-   * Sized deliberately: one full charge runs the pump for a little over five
-   * hours, which is generous enough to experiment with and tight enough that
-   * an always-on pump still fails overnight.
-   */
-  batteryCapacityWh: 480,
   /** Inverter, charge-controller and wiring losses on the way in. */
   chargeEfficiency: 0.85,
   /** Losses on the way out to the load. */
@@ -86,18 +72,28 @@ export const CONFIG = {
   /** Below this state of charge the pump is not permitted to start. */
   minOperatingBatteryPercent: 3,
 
-  irrigationRatePerSecond: 4,
-  evaporationPerSecond: 0.4,
+  /**
+   * Water and health rates, tuned against the real clock.
+   *
+   * One real second is half a farm hour, so a full day passes in 48 real
+   * seconds. At the old 0.4 %/s the bed dried by only about 19 points a day —
+   * a single watering. A crop bed in hot weather realistically wants watering
+   * two or three times daily, so the drain is set for roughly 120 points of
+   * loss across a day and irrigation is fast enough to answer it in seconds.
+   */
+  irrigationRatePerSecond: 9,
+  evaporationPerSecond: 3.2,
   healthyMoistureMin: 30,
   healthyMoistureMax: 70,
   dryStressBelow: 25,
   overwaterAbove: 85,
-  healthGainPerSecond: 0.5,
-  healthDryLossPerSecond: 1.2,
-  healthOverwaterLossPerSecond: 0.35,
+  /** Recovery is slower than damage, but not so slow that a rescue is invisible. */
+  healthGainPerSecond: 1.4,
+  healthDryLossPerSecond: 1.6,
+  healthOverwaterLossPerSecond: 0.9,
   hoursPerRealSecond: 0.5 / 60,
 
-  // --- energy accounting, used by HardwareValidator and the tutor ---
+  // --- shared electrical constants ---
   /** Nominal DC bus voltage of the installation. */
   busVoltage: 12,
   /** Round-trip losses in the charge controller and wiring. */
@@ -324,8 +320,12 @@ export function tryTogglePump(): { ok: boolean; reason?: string } {
 
 /** Hours the pump could run on what is currently stored. */
 export function pumpRuntimeHoursRemaining(): number {
-  const drawWh = CONFIG.pumpPowerWatts / CONFIG.dischargeEfficiency
-  return farm.batteryEnergyWh / drawWh
+  // Derived from whatever is actually drawing on this bench. With no load
+  // installed there is nothing to run down, so the answer is unbounded.
+  const topo = topology()
+  const load = topo.activeLoadWatts || topo.standbyWatts
+  if (load <= 0) return Infinity
+  return farm.batteryEnergyWh / (load / CONFIG.dischargeEfficiency)
 }
 
 function clamp(value: number, min: number, max: number) {

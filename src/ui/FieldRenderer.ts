@@ -14,7 +14,7 @@ import { graph, partOf, wiredOutputs, wiredSensors } from '../hardware/CircuitGr
 import type { CatalogPart } from '../hardware/ComponentCatalog'
 import { outputOf, readingOf } from '../simulation/DeviceState'
 import { farm } from '../simulation/FarmState'
-import { alwaysOnLoads } from '../simulation/PowerSystem'
+import { alwaysOnLoads, topology } from '../simulation/PowerSystem'
 import { componentArt } from './ComponentArt'
 import { isPipeRun, isOutdoors, placementFor } from './SceneLayout'
 
@@ -216,6 +216,22 @@ function unitState(u: FieldUnit): { text: string; active: boolean; tone: string 
   }
 
   if (part.category === 'power') {
+    // A converter neither generates nor stores. Reporting array watts on one is
+    // misleading, and reporting zero looks broken — what it actually does is
+    // pass power through, so that is what it says.
+    const isConverter = /Controller|converter|regulator/i.test(part.name)
+    if (isConverter) {
+      const t = topology()
+      const passing = farm.solarGeneration
+      if (!t.chargePathComplete) {
+        return { text: 'not in circuit', active: false, tone: 'warn' }
+      }
+      return {
+        text: passing > 0 ? `passing ${Math.round(passing)} W` : 'standby',
+        active: passing > 0,
+        tone: passing > 0 ? 'good' : 'idle',
+      }
+    }
     if (part.capacityWh) {
       return {
         text: `${Math.round(farm.battery)}%`,

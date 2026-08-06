@@ -13,7 +13,8 @@
 // The engine reads FarmState and nothing else.
 // ---------------------------------------------------------------------------
 
-import { CONFIG, farm } from './FarmState'
+import { farm } from './FarmState'
+import { topology } from './PowerSystem'
 import type { FarmState } from './FarmState'
 
 export type MisconceptionId =
@@ -271,11 +272,17 @@ export class AITutorEngine {
     const hoursToDawn = this.hoursUntilDawn()
     if (hoursToDawn <= 0) return null
 
-    // Real seconds of darkness remaining, then the drain the pump would cause.
-    const realSecondsToDawn = hoursToDawn / (CONFIG.hoursPerRealSecond * 60)
+    // Project the overnight drain from the load actually installed, not from an
+    // assumed pump. A bench with a 3.5 W pump and one with a 30 W pump face very
+    // different nights, and the warning should reflect which one they built.
+    const topo = topology()
+    const capacityWh = topo.capacityWh
+    if (capacityWh <= 0) return null
+
     const dutyFraction = this.state.pumpOn ? 0.5 : 0.25
-    const projectedDrain = CONFIG.pumpDrainPerSecond * realSecondsToDawn * dutyFraction
-    const projectedBattery = this.state.battery - projectedDrain
+    const loadWatts = topo.activeLoadWatts * dutyFraction + topo.standbyWatts
+    const drainWh = loadWatts * hoursToDawn
+    const projectedBattery = this.state.battery - (drainWh / capacityWh) * 100
 
     if (projectedBattery > 5) return null
 

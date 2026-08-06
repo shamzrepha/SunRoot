@@ -16,6 +16,7 @@ import { appState } from '../appState'
 import { CATALOG, CATEGORY_LABELS, CATEGORY_ORDER, partsInCategory } from '../hardware/ComponentCatalog'
 import { canProceed, distinctOwned, remaining, spent, tray } from '../hardware/PartsTray'
 import { graph, partOf, wiredOutputs, wiredSensors } from '../hardware/CircuitGraph'
+import { describeCircuit, describeProgram } from './DesignDossier'
 import { checkGraph } from '../hardware/GraphChecker'
 import { farm } from '../simulation/FarmState'
 import { alwaysOnLoads, hydraulicPath, topology } from '../simulation/PowerSystem'
@@ -193,6 +194,8 @@ export function fullContext(): string {
     '',
     benchDescription(),
     '',
+    describeProgram(),
+    '',
     systemsDescription(),
     '',
     farmDescription(),
@@ -211,6 +214,12 @@ export function fullContext(): string {
       'A known-good minimum loadout, if they ask what to buy:',
       suggestedLoadout(),
     )
+  }
+
+  // On the bench and in the coding lab, the full netlist is worth its tokens:
+  // it is what lets the assistant answer about a specific wire.
+  if (appState.screen === 'circuit' || appState.screen === 'coding') {
+    blocks.push('', 'FULL NETLIST:', describeCircuit())
   }
 
   return blocks.filter((b) => b !== '').join('\n')
