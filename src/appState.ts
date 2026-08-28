@@ -1,4 +1,8 @@
 export type Screen =
+  | 'login'
+  | 'dashboard'
+  | 'classes'
+  | 'findClass'
   | 'loading'
   | 'intro'
   | 'shed'

@@ -14,8 +14,20 @@ import { sfx } from '../game/sound'
 import { completeObjective } from '../game/progress'
 import { toast, updateRankUi } from '../game/shell'
 
-/** Survives navigation. Never seeded — the workspace starts genuinely empty. */
+/**
+ * Survives navigation. Never seeded — the workspace starts genuinely empty.
+ * Exposed via get/set so SaveManager can persist it across a real reload too,
+ * not just in-session screen changes.
+ */
 let savedWorkspace: object | null = null
+
+export function getSavedWorkspace(): object | null {
+  return savedWorkspace
+}
+
+export function setSavedWorkspace(snapshot: object | null) {
+  savedWorkspace = snapshot
+}
 
 /**
  * Every loop body gets a guard injected. A student writing `while true` with no

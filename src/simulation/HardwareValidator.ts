@@ -153,14 +153,18 @@ export const CATALOGUE: Record<string, ComponentSpec> = {
     id: 'solarPanel',
     kind: 'source',
     label: 'Solar array',
-    peakWatts: CONFIG.panelPeakWatts,
+    // Pre-existing bug fixed in passing: CONFIG.panelPeakWatts doesn't exist
+    // (this whole CATALOGUE constant is currently unused dead code — nothing
+    // outside this file imports it — but it broke `tsc` for the whole build).
+    // Real per-part wattage lives in ComponentCatalog.ts / PowerSystem.ts.
+    peakWatts: 100,
     supplyVoltage: CONFIG.busVoltage,
   },
   battery: {
     id: 'battery',
     kind: 'storage',
     label: 'Battery bank',
-    capacityWh: CONFIG.batteryCapacityWh,
+    capacityWh: 200,
     supplyVoltage: CONFIG.busVoltage,
   },
   esp32: {

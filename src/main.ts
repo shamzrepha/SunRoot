@@ -19,6 +19,14 @@ import { farm } from './simulation/FarmState'
 import { progress } from './game/progress'
 import { icon } from './ui/icons'
 import { hide as hideAssistant, show as assistantShow } from './ai/Assistant'
+import { restoreAll, startAutosave } from './persistence/SaveManager'
+import { onAuthChange, logOut } from './accounts/AuthService'
+import { session, refreshProfile } from './accounts/Session'
+import { ensureDemoClassroomExists } from './accounts/ClassroomService'
+import { renderLogin } from './screens/login'
+import { renderDashboard } from './screens/dashboard'
+import { renderClasses } from './screens/classes'
+import { renderFindClass } from './screens/findClass'
 
 const root = document.querySelector<HTMLDivElement>('#app')!
 let shellMounted = false
@@ -38,7 +46,10 @@ function navItems(): NavItem[] {
     { id: 'report', label: 'Report', icon: icon('report'), group: 'Progress' },
     { id: 'rewards', label: 'Rewards', icon: icon('rewards'), group: 'Progress' },
     { id: 'tutor', label: 'Tutor', icon: icon('tutor'), group: 'Progress' },
-    { id: 'teacher', label: 'Class view', icon: icon('class'), group: 'More' },
+    { id: 'dashboard', label: 'Dashboard', icon: icon('class'), group: 'Account' },
+    { id: 'classes', label: 'My Classes', icon: icon('class'), group: 'Account' },
+    { id: 'findClass', label: 'Find a Class', icon: icon('class'), group: 'Account' },
+    { id: 'teacher', label: 'Concept report', icon: icon('class'), group: 'More' },
     { id: 'access', label: 'Accessibility', icon: icon('access'), group: 'More' },
   ].map((n) => ({ ...n, id: n.id as Screen }))
 }
@@ -77,12 +88,20 @@ export function goTo(screen: Screen) {
   if (screen !== 'farm') stopFarmLoop()
   appState.screen = screen
 
+  if (screen === 'login') {
+    shellMounted = false
+    cancelAnimationFrame(hudTimer)
+    renderLogin(root, () => goTo('loading'))
+    return
+  }
   if (screen === 'loading') {
     shellMounted = false
     cancelAnimationFrame(hudTimer)
     initAccessibility()
     mountAssistantDock()
-    renderLoading(root, () => goTo('farm'))
+    // Dashboard, not the farm, is the landing page after login — the farm is
+    // still one click away via "Continue building" or the Farm nav item.
+    renderLoading(root, () => goTo('dashboard'))
     return
   }
   if (screen === 'intro') {
@@ -133,6 +152,17 @@ export function goTo(screen: Screen) {
         )
       }
 
+    } else if (screen === 'dashboard') {
+      renderDashboard(host, {
+        toClasses: () => goTo('classes'),
+        toFindClass: () => goTo('findClass'),
+        toFarm: () => goTo('farm'),
+        onLogout: () => logOut().then(() => goTo('login')),
+      })
+    } else if (screen === 'classes') {
+      renderClasses(host)
+    } else if (screen === 'findClass') {
+      renderFindClass(host)
     } else if (screen === 'learning') {
       renderLearning(host)
     } else if (screen === 'teacher') {
@@ -170,4 +200,30 @@ setInterval(() => {
   progress.stats.lowestBattery = Math.min(progress.stats.lowestBattery, farm.battery)
 }, 1000)
 
-goTo('loading')
+// --- Auth gate --------------------------------------------------------------
+// Nothing else renders until Firebase reports whether a session is cached.
+// That check is what makes "stay logged in across a refresh" actually work —
+// previously there was no gate at all, so the app always booted straight into
+// the farm with no notion of who (if anyone) was using it.
+root.innerHTML = `<div class="screen"><p class="empty-note" style="padding:24px">Loading SunRoot\u2026</p></div>`
+
+onAuthChange(async (user) => {
+  session.user = user
+
+  if (!user) {
+    goTo('login')
+    return
+  }
+
+  await refreshProfile()
+  ensureDemoClassroomExists().catch((err) => console.error('SunRoot: seed check failed', err))
+
+  // Restore everything (farm, circuit, coding blocks, learner model,
+  // scoreboard, XP/badges) before the very first render, so a refresh
+  // mid-session no longer throws work away.
+  const resumed = restoreAll()
+  startAutosave()
+  if (resumed) console.info('SunRoot: restored a previous session')
+
+  goTo('loading')
+})
