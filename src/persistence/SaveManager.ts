@@ -16,10 +16,12 @@
 
 import { farm } from '../simulation/FarmState'
 import { graph } from '../hardware/CircuitGraph'
-import { learner } from '../learning/LearnerModel'
+import { learner, CONCEPTS, masteryOf, overallMastery, MASTERY_THRESHOLD } from '../learning/LearnerModel'
 import { score } from '../simulation/Scoreboard'
 import { progress } from '../game/progress'
 import { getSavedWorkspace, setSavedWorkspace } from '../screens/codingLab'
+import { session } from '../accounts/Session'
+import { pushProgressSnapshot } from '../accounts/ProgressService'
 
 const SAVE_KEY = 'sunroot:save:v1'
 const CURRENT_VERSION = 1
@@ -120,6 +122,37 @@ export function clearSave() {
 }
 
 let intervalHandle = 0
+let progressSyncHandle = 0
+
+/**
+ * Pushes a summary (XP, rank, concepts mastered, per-concept breakdown) to
+ * Firestore so a teacher can actually see it — not the full save, which
+ * stays local-only. Silently skipped if nobody is signed in.
+ */
+async function syncProgressSnapshot() {
+  const profile = session.profile
+  if (!profile) return
+  try {
+    const conceptMastery: Record<string, { mastery: number; engaged: boolean }> = {}
+    for (const c of CONCEPTS) {
+      const st = learner.concepts[c.id]
+      conceptMastery[c.id] = { mastery: masteryOf(c.id), engaged: st.correct + st.incorrect > 0 }
+    }
+    await pushProgressSnapshot({
+      uid: profile.uid,
+      displayName: profile.displayName,
+      xp: progress.xp,
+      rank: progress.rank,
+      conceptsMastered: CONCEPTS.filter((c) => masteryOf(c.id) >= MASTERY_THRESHOLD).length,
+      totalConcepts: CONCEPTS.length,
+      overallMastery: overallMastery(),
+      daysSurvived: progress.stats.daysSurvived,
+      conceptMastery,
+    })
+  } catch (err) {
+    console.error('SunRoot: progress sync failed', err)
+  }
+}
 
 /** Call once at boot, after restoreAll(). Autosaves periodically and on tab close/hide. */
 export function startAutosave(intervalMs = 3000) {
@@ -131,5 +164,15 @@ export function startAutosave(intervalMs = 3000) {
   window.addEventListener('beforeunload', saveAll)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') saveAll()
+  })
+
+  // Progress summary syncs far less often than the local save — it's a
+  // network write, not a localStorage write, and a teacher's roster view
+  // doesn't need second-by-second freshness.
+  window.clearInterval(progressSyncHandle)
+  progressSyncHandle = window.setInterval(syncProgressSnapshot, 20000)
+  syncProgressSnapshot()
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') syncProgressSnapshot()
   })
 }

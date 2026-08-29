@@ -3449,3 +3449,21 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
 @media (max-width: 640px) {
   .profile-header { margin-left: 16px; margin-right: 16px; }
 }
+
+/* ---------- Class analytics (teacher view) ---------- */
+.sub-heading { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #8f9bad; margin: 16px 0 8px; }
+.roster-progress.at-risk { color: #e8836b; }
+.ai-insight-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: rgba(79,214,122,0.06);
+  border: 1px solid rgba(79,214,122,0.3);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #eaf9ee;
+  white-space: normal;
+}
+.student-detail { margin-top: 8px; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px; }
+.student-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.details-toggle-btn { margin-left: 6px; }

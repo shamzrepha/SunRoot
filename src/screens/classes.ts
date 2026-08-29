@@ -12,8 +12,11 @@ import {
   submitClassSuggestion,
 } from '../accounts/ClassroomService'
 import { createTeam, joinTeam, listTeamsForClassroom } from '../accounts/TeamService'
+import { fetchProgressSnapshots } from '../accounts/ProgressService'
+import { generateTeachingRecommendations } from '../ai/TeachingInsights'
+import { CONCEPT_BY_ID, MASTERY_THRESHOLD } from '../learning/LearnerModel'
 import { CLASS_TOPICS } from '../accounts/types'
-import type { Classroom, ClassroomInvite, Team, UserProfile } from '../accounts/types'
+import type { Classroom, ClassroomInvite, ProgressSnapshot, Team, UserProfile } from '../accounts/types'
 
 export function renderClasses(root: HTMLElement, nav: { toWorkshop: () => void }) {
   const profile = session.profile
@@ -229,8 +232,58 @@ async function renderDetail(root: HTMLElement, profile: UserProfile, classroomId
   ])
 
   const isOwner = profile.role === 'teacher' && classroom.teacherId === profile.uid
+  const progressByUid = isOwner ? await fetchProgressSnapshots(classroom.studentIds) : {}
 
-  paintDetail(root, profile, classroom, roster, teams, isOwner, nav)
+  paintDetail(root, profile, classroom, roster, teams, isOwner, nav, progressByUid)
+}
+
+interface ClassAnalytics {
+  studentsWithData: number
+  avgMastery: number
+  avgXp: number
+  atRisk: { student: UserProfile; reason: string }[]
+  weakestConcepts: { id: string; label: string; avgMastery: number; studentCount: number }[]
+}
+
+function computeClassAnalytics(roster: UserProfile[], progressByUid: Record<string, ProgressSnapshot>): ClassAnalytics {
+  const withData = roster.filter((s) => progressByUid[s.uid])
+  const avgMastery = withData.length
+    ? withData.reduce((sum, s) => sum + progressByUid[s.uid].overallMastery, 0) / withData.length
+    : 0
+  const avgXp = withData.length ? withData.reduce((sum, s) => sum + progressByUid[s.uid].xp, 0) / withData.length : 0
+
+  const atRisk: ClassAnalytics['atRisk'] = []
+  for (const s of roster) {
+    const p = progressByUid[s.uid]
+    if (!p) {
+      atRisk.push({ student: s, reason: 'No activity yet' })
+    } else if (p.overallMastery < 0.4 && Object.values(p.conceptMastery).some((c) => c.engaged)) {
+      atRisk.push({ student: s, reason: `${Math.round(p.overallMastery * 100)}% mastery \u2014 struggling` })
+    }
+  }
+
+  const conceptTotals = new Map<string, { sum: number; count: number }>()
+  for (const s of withData) {
+    const p = progressByUid[s.uid]
+    for (const [conceptId, c] of Object.entries(p.conceptMastery)) {
+      if (!c.engaged) continue
+      const entry = conceptTotals.get(conceptId) ?? { sum: 0, count: 0 }
+      entry.sum += c.mastery
+      entry.count += 1
+      conceptTotals.set(conceptId, entry)
+    }
+  }
+  const weakestConcepts = [...conceptTotals.entries()]
+    .map(([id, { sum, count }]) => ({
+      id,
+      label: CONCEPT_BY_ID.get(id as any)?.label ?? id,
+      avgMastery: sum / count,
+      studentCount: count,
+    }))
+    .sort((a, b) => a.avgMastery - b.avgMastery)
+    .slice(0, 3)
+
+  return { studentsWithData: withData.length, avgMastery, avgXp, atRisk, weakestConcepts }
 }
 
 function paintDetail(
@@ -241,7 +294,9 @@ function paintDetail(
   teams: Team[],
   isOwner: boolean,
   nav: { toWorkshop: () => void },
+  progressByUid: Record<string, ProgressSnapshot>,
 ) {
+  const analytics = isOwner ? computeClassAnalytics(roster, progressByUid) : null
   root.innerHTML = `
     <div class="screen">
       <button class="ghost-button small" id="backBtn">\u2190 Back to My Classes</button>
@@ -254,6 +309,53 @@ function paintDetail(
       </div>
 
       <button class="primary-button" id="openWorkshopBtn">Open Workshop \u2192</button>
+
+      ${
+        isOwner && analytics
+          ? `<div class="class-panel analytics-panel">
+              <h2>Class Analytics</h2>
+              ${
+                analytics.studentsWithData === 0
+                  ? `<p class="empty-note">No student activity recorded yet.</p>`
+                  : `
+                    <div class="dash-grid">
+                      <div class="teach-card"><div class="teach-tag">AVG MASTERY</div><div class="class-figure">${Math.round(analytics.avgMastery * 100)}%</div></div>
+                      <div class="teach-card"><div class="teach-tag">AVG XP</div><div class="class-figure">${Math.round(analytics.avgXp)}</div></div>
+                      <div class="teach-card"><div class="teach-tag">STUDENTS ACTIVE</div><div class="class-figure">${analytics.studentsWithData}/${roster.length}</div></div>
+                    </div>
+
+                    ${
+                      analytics.atRisk.length
+                        ? `<h3 class="sub-heading">Needs attention (${analytics.atRisk.length})</h3>
+                          <ul class="roster-list">
+                            ${analytics.atRisk
+                              .map((r) => `<li><span>${escapeHtml(r.student.displayName)}</span><span class="roster-progress at-risk">${escapeHtml(r.reason)}</span></li>`)
+                              .join('')}
+                          </ul>`
+                        : `<p class="empty-note">No students currently flagged as struggling.</p>`
+                    }
+
+                    ${
+                      analytics.weakestConcepts.length
+                        ? `<h3 class="sub-heading">Weakest concepts class-wide</h3>
+                          <div class="class-bars">
+                            ${analytics.weakestConcepts
+                              .map(
+                                (c) => `<div class="class-bar-row"><span class="cb-name">${escapeHtml(c.label)}</span>
+                                  <div class="cb-track"><div class="cb-fill ${c.avgMastery < 0.5 ? 'low' : 'high'}" style="width:${c.avgMastery * 100}%"></div></div>
+                                  <span class="cb-pct">${Math.round(c.avgMastery * 100)}%</span></div>`,
+                              )
+                              .join('')}
+                          </div>`
+                        : ''
+                    }
+                  `
+              }
+              <button class="ghost-button" id="aiInsightsBtn" style="margin-top:14px">Generate AI teaching recommendations</button>
+              <div id="aiInsightsResult"></div>
+            </div>`
+          : ''
+      }
 
       ${
         isOwner
@@ -274,12 +376,24 @@ function paintDetail(
           roster.length
             ? `<ul class="roster-list">
                 ${roster
-                  .map(
-                    (s) => `<li data-uid="${s.uid}">
-                      <span>${escapeHtml(s.displayName)}</span>
+                  .map((s) => {
+                    const p = progressByUid[s.uid]
+                    return `<li data-uid="${s.uid}" class="roster-row">
+                      <div class="roster-identity">
+                        <span>${escapeHtml(s.displayName)}</span>
+                        ${
+                          isOwner
+                            ? p
+                              ? `<span class="roster-progress">${p.rank} \u00b7 ${p.xp} XP \u00b7 ${p.conceptsMastered}/${p.totalConcepts} concepts \u00b7 ${Math.round(p.overallMastery * 100)}% mastery
+                                  <button class="link-button details-toggle-btn" data-uid="${s.uid}">Details</button></span>
+                                <div class="student-detail" id="detail-${s.uid}" hidden>${studentDetailHtml(p)}</div>`
+                              : `<span class="roster-progress empty-note">No activity yet</span>`
+                            : ''
+                        }
+                      </div>
                       ${isOwner ? `<button class="ghost-button small remove-btn">Remove</button>` : ''}
-                    </li>`,
-                  )
+                    </li>`
+                  })
                   .join('')}
               </ul>`
             : `<p class="empty-note">No students yet.</p>`
@@ -327,6 +441,43 @@ function paintDetail(
   `
 
   root.querySelector('#backBtn')?.addEventListener('click', () => renderClasses(root, nav))
+
+  root.querySelectorAll<HTMLButtonElement>('.details-toggle-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const panel = root.querySelector<HTMLElement>(`#detail-${btn.dataset.uid}`)
+      if (panel) panel.hidden = !panel.hidden
+    })
+  })
+
+  root.querySelector<HTMLButtonElement>('#aiInsightsBtn')?.addEventListener('click', async (e) => {
+    if (!analytics) return
+    const btn = e.currentTarget as HTMLButtonElement
+    const resultEl = root.querySelector<HTMLElement>('#aiInsightsResult')!
+    btn.disabled = true
+    btn.textContent = 'Thinking\u2026'
+    resultEl.innerHTML = ''
+
+    const summary = [
+      `Class: ${classroom.name} (${classroom.topic}).`,
+      `${analytics.studentsWithData} of ${roster.length} students have activity.`,
+      `Average mastery: ${Math.round(analytics.avgMastery * 100)}%.`,
+      analytics.atRisk.length
+        ? `Struggling or inactive students: ${analytics.atRisk.map((r) => `${r.student.displayName} (${r.reason})`).join('; ')}.`
+        : 'No students currently flagged as struggling.',
+      analytics.weakestConcepts.length
+        ? `Weakest concepts class-wide: ${analytics.weakestConcepts.map((c) => `${c.label} (${Math.round(c.avgMastery * 100)}% avg, ${c.studentCount} students)`).join('; ')}.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    const res = await generateTeachingRecommendations(summary)
+    btn.disabled = false
+    btn.textContent = 'Regenerate recommendations'
+    resultEl.innerHTML = res.text
+      ? `<div class="ai-insight-box">${escapeHtml(res.text).replace(/\n/g, '<br>')}</div>`
+      : `<p class="empty-note">Couldn\u2019t generate recommendations: ${escapeHtml(res.error ?? 'unknown error')}</p>`
+  })
   root.querySelector('#openWorkshopBtn')?.addEventListener('click', () => nav.toWorkshop())
 
   root.querySelector<HTMLFormElement>('#inviteForm')?.addEventListener('submit', async (e) => {
@@ -383,6 +534,27 @@ function paintDetail(
       renderDetail(root, profile, classroom.id, nav)
     })
   })
+}
+
+function studentDetailHtml(p: ProgressSnapshot): string {
+  const engaged = Object.entries(p.conceptMastery).filter(([, c]) => c.engaged)
+  if (!engaged.length) return `<p class="empty-note">No concept activity yet.</p>`
+  const sorted = [...engaged].sort((a, b) => b[1].mastery - a[1].mastery)
+  const strengths = sorted.filter(([, c]) => c.mastery >= MASTERY_THRESHOLD).slice(0, 3)
+  const gaps = [...sorted].reverse().filter(([, c]) => c.mastery < MASTERY_THRESHOLD).slice(0, 3)
+  const label = (id: string) => CONCEPT_BY_ID.get(id as any)?.label ?? id
+  return `
+    <div class="student-detail-grid">
+      <div>
+        <div class="teach-tag">STRONG</div>
+        ${strengths.length ? strengths.map(([id, c]) => `<p class="teach-body">${escapeHtml(label(id))} \u2014 ${Math.round(c.mastery * 100)}%</p>`).join('') : `<p class="empty-note">None yet</p>`}
+      </div>
+      <div>
+        <div class="teach-tag">NEEDS WORK</div>
+        ${gaps.length ? gaps.map(([id, c]) => `<p class="teach-body">${escapeHtml(label(id))} \u2014 ${Math.round(c.mastery * 100)}%</p>`).join('') : `<p class="empty-note">None yet</p>`}
+      </div>
+    </div>
+  `
 }
 
 function escapeHtml(s: string): string {

@@ -63,5 +63,13 @@ service cloud.firestore {
       allow update: if isAdminUser()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
     }
+
+    match /progressSnapshots/{uid} {
+      // Same low bar as `users`: any signed-in person can read it (teachers
+      // need to see any student's summary without a per-classroom check in
+      // rules). Only the owning student can ever write their own.
+      allow read: if isSignedIn();
+      allow write: if isSelf(uid);
+    }
   }
 }

@@ -87,3 +87,22 @@ export const CLASS_TOPICS = [
   'Other (not yet available)',
 ] as const
 
+/**
+ * A lightweight, periodically-synced summary of a student's simulation
+ * progress — NOT the full farm/circuit save, which stays local-only. Includes
+ * a per-concept breakdown so a teacher's view can show real strengths/gaps,
+ * not just one aggregate number.
+ */
+export interface ProgressSnapshot {
+  uid: string
+  displayName: string
+  xp: number
+  rank: string
+  conceptsMastered: number
+  totalConcepts: number
+  overallMastery: number // 0–1, engaged concepts only
+  daysSurvived: number
+  /** Per-concept mastery (0–1) and whether the student has actually attempted it. */
+  conceptMastery: Record<string, { mastery: number; engaged: boolean }>
+  updatedAt: number
+}
