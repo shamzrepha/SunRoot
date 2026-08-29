@@ -30,6 +30,7 @@ import { renderClasses } from './screens/classes'
 import { renderFindClass } from './screens/findClass'
 import { renderAdmin } from './screens/admin'
 import { renderProfile } from './screens/profile'
+import { renderCompleteProfile } from './screens/completeProfile'
 
 const root = document.querySelector<HTMLDivElement>('#app')!
 let shellMounted = false
@@ -248,6 +249,17 @@ onAuthChange(async (user) => {
   }
 
   await refreshProfile()
+
+  // Authenticated, but no Firestore profile — this is the fix for the
+  // Google sign-in race (see completeProfile.ts for the full explanation).
+  // Handling it here, in the one place every auth state change passes
+  // through, means it's caught no matter which code path got someone into
+  // this state, not just the specific race that surfaced it.
+  if (!session.profile) {
+    renderCompleteProfile(root, user, () => goTo('loading'))
+    return
+  }
+
   ensureDemoClassroomExists().catch((err) => console.error('SunRoot: seed check failed', err))
 
   // Restore everything (farm, circuit, coding blocks, learner model,

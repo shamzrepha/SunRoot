@@ -2,13 +2,11 @@ import {
   signUp,
   logIn,
   signInWithGoogle,
-  completeGoogleSignup,
   requestPasswordReset,
   describeAuthError,
 } from '../accounts/AuthService'
 import { refreshProfile } from '../accounts/Session'
 import type { Role } from '../accounts/types'
-import type { User as FirebaseUser } from 'firebase/auth'
 
 type Mode = 'login' | 'signup' | 'reset'
 
@@ -21,7 +19,6 @@ const ROLE_COPY: Record<Role, { label: string; hint: string }> = {
 export function renderLogin(root: HTMLElement, onAuthenticated: () => void) {
   let mode: Mode = 'login'
   let role: Role = 'student'
-  let pendingGoogleUser: FirebaseUser | null = null
 
   function paintCanvas() {
     return `
@@ -35,49 +32,6 @@ export function renderLogin(root: HTMLElement, onAuthenticated: () => void) {
         <p>Wire the circuit. Route the water. Grow the farm.</p>
       </div>
     `
-  }
-
-  // A first-time Google sign-in has no role yet — Google can't tell us that.
-  // This mini-screen collects it once, then finishes account creation.
-  function paintGoogleRolePicker() {
-    root.innerHTML = `
-      <div class="screen login-screen">
-        ${paintCanvas()}
-        <div class="login-card">
-          <p class="empty-note">One more thing \u2014 how will you use SunRoot?</p>
-          <div class="role-tabs" role="tablist">
-            ${(Object.keys(ROLE_COPY) as Role[])
-              .map((r) => `<button type="button" class="role-tab${r === role ? ' is-active' : ''}" data-role="${r}">${ROLE_COPY[r].label}</button>`)
-              .join('')}
-          </div>
-          <p class="empty-note">${ROLE_COPY[role].hint}</p>
-          <p class="login-error" id="loginError" hidden></p>
-          <button type="button" class="primary-button large" id="finishGoogleButton">Continue</button>
-        </div>
-      </div>
-    `
-    root.querySelectorAll<HTMLButtonElement>('.role-tab').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        role = btn.dataset.role as Role
-        paintGoogleRolePicker()
-      })
-    })
-    const errorEl = root.querySelector<HTMLParagraphElement>('#loginError')!
-    root.querySelector<HTMLButtonElement>('#finishGoogleButton')!.addEventListener('click', async (e) => {
-      const btn = e.currentTarget as HTMLButtonElement
-      btn.disabled = true
-      btn.textContent = 'Working\u2026'
-      try {
-        await completeGoogleSignup(pendingGoogleUser!, role)
-        await refreshProfile()
-        onAuthenticated()
-      } catch (err: any) {
-        errorEl.textContent = describeAuthError(err?.code ?? '')
-        errorEl.hidden = false
-        btn.disabled = false
-        btn.textContent = 'Continue'
-      }
-    })
   }
 
   function paint() {
@@ -171,14 +125,15 @@ export function renderLogin(root: HTMLElement, onAuthenticated: () => void) {
     root.querySelector<HTMLButtonElement>('#googleButton')?.addEventListener('click', async () => {
       errorEl.hidden = true
       try {
-        const { user, isNewUser } = await signInWithGoogle()
-        if (isNewUser) {
-          pendingGoogleUser = user
-          paintGoogleRolePicker()
-        } else {
-          await refreshProfile()
-          onAuthenticated()
-        }
+        // Deliberately not doing anything else here — no role check, no
+        // navigation. Google sign-in changes Firebase's auth state, which
+        // main.ts's global auth-state listener reacts to on its own: it
+        // decides whether this account needs a role picker (no profile
+        // yet) or goes straight to the dashboard (returning user). Having
+        // that decision made in exactly one place, instead of also trying
+        // to make it here, is what fixes the race that used to let a
+        // Google sign-in through with no role ever assigned.
+        await signInWithGoogle()
       } catch (err: any) {
         errorEl.textContent = describeAuthError(err?.code ?? '')
         errorEl.hidden = false

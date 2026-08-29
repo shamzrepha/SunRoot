@@ -87,7 +87,7 @@ export async function signInWithGoogle(): Promise<{ user: FirebaseUser; isNewUse
   return { user: credential.user, isNewUser: !existing.exists() }
 }
 
-/** Call right after signInWithGoogle() reports isNewUser: true. */
+/** Creates the Firestore profile for an already-authenticated user who doesn't have one yet — called from completeProfile.ts, the single place that decides this is needed. */
 export async function completeGoogleSignup(user: FirebaseUser, role: Role): Promise<UserProfile> {
   const displayName = user.displayName ?? user.email ?? 'New user'
   const studentTag = role === 'teacher' ? undefined : await generateUniqueStudentTag()
