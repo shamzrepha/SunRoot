@@ -24,6 +24,9 @@ service cloud.firestore {
         && request.resource.data.role == resource.data.role
         && request.resource.data.studentTag == resource.data.studentTag
         && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false);
+      // Only an admin can remove a profile outright, and never their own by
+      // this path (self-deletion isn't something the admin panel offers).
+      allow delete: if isAdminUser() && !isSelf(uid);
     }
 
     match /classrooms/{classroomId} {

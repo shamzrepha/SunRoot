@@ -54,7 +54,17 @@ while IFS='=' read -r key value; do
   # Remove first, ignore failure if it doesn't exist yet — keeps this
   # script safe to re-run without "already exists" errors.
   vercel env rm "$key" production --yes >/dev/null 2>&1 || true
-  printf '%s' "$value" | vercel env add "$key" production >/dev/null
+
+  # VITE_-prefixed vars are meant to be readable in the browser (that's the
+  # whole point of the VITE_ prefix — Vite inlines them at build time), so
+  # they're explicitly typed "config". Everything else (just GROQ_API_KEY
+  # here) is a real secret and stays private, read only server-side by the
+  # function at request time.
+  if [[ "$key" == VITE_* ]]; then
+    printf '%s' "$value" | vercel env add "$key" production --type config >/dev/null
+  else
+    printf '%s' "$value" | vercel env add "$key" production --type secret >/dev/null
+  fi
 done < "$ENV_FILE"
 
 echo "== 6. Deploying to production =="
