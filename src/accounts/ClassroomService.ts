@@ -18,7 +18,7 @@ import {
 import { db } from './firebase'
 import type { Classroom, ClassroomInvite, ClassSuggestion, UserProfile } from './types'
 
-const DEMO_CLASSROOM_ID = 'sunroot-original'
+export const DEMO_CLASSROOM_ID = 'sunroot-original'
 const SYSTEM_TEACHER_ID = 'sunroot-system'
 
 /** Call once at boot. Cheap no-op after the first run. */

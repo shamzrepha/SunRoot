@@ -6,6 +6,7 @@ export type Screen =
   | 'admin'
   | 'profile'
   | 'leaderboard'
+  | 'messages'
   | 'loading'
   | 'intro'
   | 'shed'

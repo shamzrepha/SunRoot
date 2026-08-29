@@ -1,6 +1,7 @@
-import { CONCEPTS, learner, masteryOf } from '../learning/LearnerModel'
+import { CONCEPT_BY_ID } from '../learning/LearnerModel'
 import { session } from '../accounts/Session'
-import { listClassroomsForUser } from '../accounts/ClassroomService'
+import { listClassroomsForUser, DEMO_CLASSROOM_ID } from '../accounts/ClassroomService'
+import { fetchProgressSnapshot } from '../accounts/ProgressService'
 
 export function renderDashboard(
   root: HTMLElement,
@@ -11,16 +12,25 @@ export function renderDashboard(
 
   root.innerHTML = `<div class="screen dash-screen"><p class="empty-note">Loading your dashboard\u2026</p></div>`
 
-  const engaged = CONCEPTS.filter((c) => {
-    const st = learner.concepts[c.id]
-    return st.correct + st.incorrect > 0
-  })
-  const strengths = [...engaged].sort((a, b) => masteryOf(b.id) - masteryOf(a.id)).filter((c) => masteryOf(c.id) >= 0.6).slice(0, 3)
-  const focusAreas = [...engaged].sort((a, b) => masteryOf(a.id) - masteryOf(b.id)).filter((c) => masteryOf(c.id) < 0.6).slice(0, 3)
-  const mastered = engaged.filter((c) => masteryOf(c.id) >= 0.85).length
+  const isTeacher = profile.role === 'teacher'
 
-  listClassroomsForUser(profile).then((classrooms) => {
-    const isTeacher = profile.role === 'teacher'
+  Promise.all([
+    listClassroomsForUser(profile),
+    // The dashboard is not a workshop screen, so it deliberately does NOT
+    // read the local farm/learner singletons — those reflect whichever
+    // class was last open in this browser tab, with no indication of which
+    // one, and never get cleared on leaving a workshop. Reading the demo
+    // class's real Firestore snapshot instead means what's shown here is
+    // honest and always tied to a specific, known class.
+    isTeacher ? Promise.resolve(null) : fetchProgressSnapshot(DEMO_CLASSROOM_ID, profile.uid),
+  ]).then(([classrooms, demoProgress]) => {
+    const engaged = demoProgress ? Object.entries(demoProgress.conceptMastery).filter(([, c]) => c.engaged) : []
+    const strengths = [...engaged].sort((a, b) => b[1].mastery - a[1].mastery).filter(([, c]) => c.mastery >= 0.6).slice(0, 3)
+    const focusAreas = [...engaged].sort((a, b) => a[1].mastery - b[1].mastery).filter(([, c]) => c.mastery < 0.6).slice(0, 3)
+    const mastered = demoProgress?.conceptsMastered ?? 0
+    const totalConcepts = demoProgress?.totalConcepts ?? 0
+    const label = (id: string) => CONCEPT_BY_ID.get(id as any)?.label ?? id
+
     root.innerHTML = `
       <div class="screen dash-screen">
         <div class="lab-header">
@@ -41,8 +51,8 @@ export function renderDashboard(
           ${
             !isTeacher
               ? `<div class="teach-card">
-                  <div class="teach-tag">CONCEPTS MASTERED</div>
-                  <div class="class-figure">${mastered} / ${CONCEPTS.length}</div>
+                  <div class="teach-tag">CONCEPTS MASTERED \u00b7 DEMO CLASS</div>
+                  <div class="class-figure">${mastered} / ${totalConcepts || 10}</div>
                 </div>`
               : ''
           }
@@ -50,35 +60,39 @@ export function renderDashboard(
 
         ${
           !isTeacher
-            ? `<div class="teacher-body">
-                <section class="class-panel">
-                  <h2>Your strong suit</h2>
-                  ${
-                    strengths.length
-                      ? `<div class="class-bars">${strengths
-                          .map((c) => {
-                            const m = masteryOf(c.id)
-                            return `<div class="class-bar-row"><span class="cb-name">${escapeHtml(c.label)}</span>
-                              <div class="cb-track"><div class="cb-fill high" style="width:${m * 100}%"></div></div>
-                              <span class="cb-pct">${Math.round(m * 100)}%</span></div>`
-                          })
-                          .join('')}</div>`
-                      : `<p class="empty-note">Nothing mastered yet \u2014 open a class to get started.</p>`
-                  }
-                </section>
-                <aside class="teacher-panel">
-                  <div class="teach-card recommend">
-                    <div class="teach-tag">FOCUS ON NEXT</div>
+            ? demoProgress && engaged.length
+              ? `<div class="teacher-body">
+                  <section class="class-panel">
+                    <h2>Your strong suit \u2014 SunRoot Original</h2>
                     ${
-                      focusAreas.length
-                        ? focusAreas
-                            .map((c) => `<p class="teach-body"><strong>${escapeHtml(c.label)}</strong> \u2014 ${Math.round(masteryOf(c.id) * 100)}%</p>`)
-                            .join('')
-                        : `<p class="teach-body">No weak spots detected yet.</p>`
+                      strengths.length
+                        ? `<div class="class-bars">${strengths
+                            .map(
+                              ([id, c]) => `<div class="class-bar-row"><span class="cb-name">${escapeHtml(label(id))}</span>
+                                <div class="cb-track"><div class="cb-fill high" style="width:${c.mastery * 100}%"></div></div>
+                                <span class="cb-pct">${Math.round(c.mastery * 100)}%</span></div>`,
+                            )
+                            .join('')}</div>`
+                        : `<p class="empty-note">Nothing mastered yet \u2014 keep building.</p>`
                     }
-                  </div>
-                </aside>
-              </div>`
+                  </section>
+                  <aside class="teacher-panel">
+                    <div class="teach-card recommend">
+                      <div class="teach-tag">FOCUS ON NEXT</div>
+                      ${
+                        focusAreas.length
+                          ? focusAreas
+                              .map(([id, c]) => `<p class="teach-body"><strong>${escapeHtml(label(id))}</strong> \u2014 ${Math.round(c.mastery * 100)}%</p>`)
+                              .join('')
+                          : `<p class="teach-body">No weak spots detected yet.</p>`
+                      }
+                    </div>
+                  </aside>
+                </div>`
+              : `<div class="class-panel">
+                  <h2>Get started</h2>
+                  <p>Head to <strong>My Classes</strong> and open the SunRoot Original demo class to start building \u2014 your progress will show up here once you do.</p>
+                </div>`
             : `<div class="class-panel">
                 <h2>Getting started</h2>
                 <p>Head to My Classes to create a class, invite students by their tag, and set up teams.</p>

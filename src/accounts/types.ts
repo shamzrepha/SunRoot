@@ -199,3 +199,26 @@ export interface TeamLeaderboardEntry {
   value: number
   memberCount: number
 }
+export interface ChatMessage {
+  id: string
+  fromUid: string
+  fromName: string
+  toUid: string
+  toName: string
+  text: string
+  createdAt: number
+}
+
+export type ReportStatus = 'new' | 'reviewed'
+
+export interface MessageReport {
+  id: string
+  messageId: string
+  messageText: string
+  messageFrom: string
+  reporterUid: string
+  reporterName: string
+  reason: string
+  status: ReportStatus
+  createdAt: number
+}

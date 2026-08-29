@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth'
 import { doc, setDoc, getDoc, getDocs, updateDoc, query, collection, where, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from './firebase'
+import { ensureDemoClassroomExists, joinPublicClassroom, DEMO_CLASSROOM_ID } from './ClassroomService'
 import type { Role, UserProfile } from './types'
 
 const emptyLearningStyle = () => ({
@@ -37,6 +38,22 @@ async function generateUniqueStudentTag(): Promise<string> {
     if (existing.empty) return candidate
   }
   return `${randomTag()}-${Date.now().toString(36).toUpperCase().slice(-3)}`
+}
+
+/**
+ * Every student/individual account automatically gets access to the demo
+ * class — the "every user has it" requirement. Teachers don't join it as a
+ * student. Best-effort: a failure here shouldn't block account creation, so
+ * it's caught and logged rather than thrown.
+ */
+async function enrollInDemoClassIfLearner(uid: string, role: Role): Promise<void> {
+  if (role === 'teacher') return
+  try {
+    await ensureDemoClassroomExists()
+    await joinPublicClassroom(DEMO_CLASSROOM_ID, uid)
+  } catch (err) {
+    console.error('SunRoot: demo class auto-enroll failed', err)
+  }
 }
 
 function buildProfile(uid: string, email: string, displayName: string, role: Role, studentTag?: string): UserProfile {
@@ -67,6 +84,7 @@ export async function signUp(params: {
   const profile = buildProfile(credential.user.uid, email, displayName, role, studentTag)
 
   await setDoc(doc(db, 'users', credential.user.uid), { ...profile, createdAt: serverTimestamp() })
+  await enrollInDemoClassIfLearner(credential.user.uid, role)
   return profile
 }
 
@@ -93,6 +111,7 @@ export async function completeGoogleSignup(user: FirebaseUser, role: Role): Prom
   const studentTag = role === 'teacher' ? undefined : await generateUniqueStudentTag()
   const profile = buildProfile(user.uid, user.email ?? '', displayName, role, studentTag)
   await setDoc(doc(db, 'users', user.uid), { ...profile, createdAt: serverTimestamp() })
+  await enrollInDemoClassIfLearner(user.uid, role)
   return profile
 }
 

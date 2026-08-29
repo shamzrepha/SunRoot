@@ -25,7 +25,7 @@ function initials(name: string): string {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
 }
 
-export function renderProfile(root: HTMLElement) {
+export function renderProfile(root: HTMLElement, nav: { toMessages: (uid: string) => void }) {
   const profile = session.profile
   if (!profile) return
   let tab: Tab = 'info'
@@ -142,12 +142,16 @@ export function renderProfile(root: HTMLElement) {
         <h2>Friends (${friends.length})</h2>
         ${
           friends.length
-            ? `<div class="team-members">${friends.map((f) => `<span class="team-member-chip">${escapeHtml(f.displayName)}</span>`).join('')}</div>`
+            ? `<div class="team-members">${friends.map((f) => `<span class="team-member-chip">${escapeHtml(f.displayName)} <button class="link-button message-friend-btn" data-uid="${f.uid}">Message</button></span>`).join('')}</div>`
             : `<p class="empty-note">No friends yet \u2014 search above to add some.</p>`
         }
         ${outgoing.length ? `<p class="empty-note" style="margin-top:8px">${outgoing.length} request${outgoing.length === 1 ? '' : 's'} sent, waiting on a reply.</p>` : ''}
       </div>
     `
+
+    host.querySelectorAll<HTMLButtonElement>('.message-friend-btn').forEach((btn) => {
+      btn.addEventListener('click', () => nav.toMessages(btn.dataset.uid!))
+    })
 
     host.querySelectorAll<HTMLElement>('[data-req]').forEach((li) => {
       li.querySelector('.accept-req-btn')?.addEventListener('click', async () => {

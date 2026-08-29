@@ -2,9 +2,10 @@ import { session } from '../accounts/Session'
 import { listClassSuggestions, markSuggestionReviewed } from '../accounts/ClassroomService'
 import { fetchStats, fetchAllUsers, removeUserAccess } from '../accounts/AdminService'
 import type { UserStats } from '../accounts/AdminService'
-import type { ClassSuggestion, UserProfile } from '../accounts/types'
+import { listMessageReports, dismissReport, removeReportedMessage } from '../accounts/MessageService'
+import type { ClassSuggestion, MessageReport, UserProfile } from '../accounts/types'
 
-type Tab = 'overview' | 'users' | 'suggestions'
+type Tab = 'overview' | 'users' | 'suggestions' | 'reports'
 
 export async function renderAdmin(root: HTMLElement) {
   const profile = session.profile
@@ -15,28 +16,36 @@ export async function renderAdmin(root: HTMLElement) {
 
   root.innerHTML = `<div class="screen"><p class="empty-note">Loading admin dashboard\u2026</p></div>`
 
-  const [stats, users, suggestions] = await Promise.all([fetchStats(), fetchAllUsers(), listClassSuggestions()])
+  const [stats, users, suggestions, reports] = await Promise.all([
+    fetchStats(),
+    fetchAllUsers(),
+    listClassSuggestions(),
+    listMessageReports(),
+  ])
 
   let tab: Tab = 'overview'
   let search = ''
   let roleFilter: 'all' | UserProfile['role'] = 'all'
 
   function paint() {
+    const newReportCount = reports.filter((r) => r.status === 'new').length
     root.innerHTML = `
       <div class="screen">
         <div class="lab-header">
-          <div><h1>Admin</h1><p>Platform-wide data: users, classes, and teacher requests.</p></div>
+          <div><h1>Admin</h1><p>Platform-wide data: users, classes, teacher requests, and moderation.</p></div>
         </div>
 
         <div class="mode-switch">
           <button type="button" class="mode-tab${tab === 'overview' ? ' is-active' : ''}" data-tab="overview">Overview</button>
           <button type="button" class="mode-tab${tab === 'users' ? ' is-active' : ''}" data-tab="users">Users (${users.length})</button>
           <button type="button" class="mode-tab${tab === 'suggestions' ? ' is-active' : ''}" data-tab="suggestions">Suggestions (${suggestions.filter((s) => s.status === 'new').length})</button>
+          <button type="button" class="mode-tab${tab === 'reports' ? ' is-active' : ''}" data-tab="reports">Reports ${newReportCount ? `(${newReportCount})` : ''}</button>
         </div>
 
         ${tab === 'overview' ? paintOverview(stats) : ''}
         ${tab === 'users' ? paintUsers(users, search, roleFilter) : ''}
         ${tab === 'suggestions' ? paintSuggestions(suggestions) : ''}
+        ${tab === 'reports' ? paintReports(reports) : ''}
       </div>
     `
 
@@ -49,6 +58,7 @@ export async function renderAdmin(root: HTMLElement) {
 
     if (tab === 'users') wireUsers()
     if (tab === 'suggestions') wireSuggestions()
+    if (tab === 'reports') wireReports()
   }
 
   function paintOverview(s: UserStats) {
@@ -142,14 +152,44 @@ export async function renderAdmin(root: HTMLElement) {
     `
   }
 
+  function paintReports(reports: MessageReport[]) {
+    const newReports = reports.filter((r) => r.status === 'new')
+    const reviewedReports = reports.filter((r) => r.status === 'reviewed')
+    return `
+      <div class="class-panel">
+        <h2>New reports (${newReports.length})</h2>
+        ${
+          newReports.length
+            ? newReports
+                .map(
+                  (r) => `<div class="suggestion-card" data-report="${r.id}" data-message="${r.messageId}">
+                    <div class="empty-note">Message from ${escapeHtml(r.messageFrom)}, reported by ${escapeHtml(r.reporterName)}</div>
+                    <div class="reported-message-text">${escapeHtml(r.messageText)}</div>
+                    <div class="empty-note">Reason: ${escapeHtml(r.reason)}</div>
+                    <div class="inline-form" style="margin-top:8px">
+                      <button class="ghost-button small dismiss-report-btn">Dismiss</button>
+                      <button class="ghost-button small danger-btn remove-message-btn">Delete message</button>
+                    </div>
+                  </div>`,
+                )
+                .join('')
+            : `<p class="empty-note">No pending reports.</p>`
+        }
+      </div>
+      ${
+        reviewedReports.length
+          ? `<div class="class-panel"><h2>Reviewed (${reviewedReports.length})</h2>${reviewedReports.map((r) => `<div class="suggestion-card is-reviewed"><div class="empty-note">${escapeHtml(r.messageFrom)}, reported by ${escapeHtml(r.reporterName)}</div></div>`).join('')}</div>`
+          : ''
+      }
+    `
+  }
+
   function wireUsers() {
     const searchInput = root.querySelector<HTMLInputElement>('#userSearch')!
     const roleSelect = root.querySelector<HTMLSelectElement>('#roleFilter')!
     searchInput.addEventListener('input', () => {
       search = searchInput.value
       paint()
-      // Re-focus and restore cursor position — paint() rebuilds the DOM,
-      // which would otherwise steal focus after every keystroke.
       const el = root.querySelector<HTMLInputElement>('#userSearch')!
       el.focus()
       el.setSelectionRange(el.value.length, el.value.length)
@@ -184,6 +224,24 @@ export async function renderAdmin(root: HTMLElement) {
         await markSuggestionReviewed(card.dataset.id!)
         const found = suggestions.find((s) => s.id === card.dataset.id)
         if (found) found.status = 'reviewed'
+        paint()
+      })
+    })
+  }
+
+  function wireReports() {
+    root.querySelectorAll<HTMLElement>('[data-report]').forEach((card) => {
+      card.querySelector('.dismiss-report-btn')?.addEventListener('click', async () => {
+        await dismissReport(card.dataset.report!)
+        const found = reports.find((r) => r.id === card.dataset.report)
+        if (found) found.status = 'reviewed'
+        paint()
+      })
+      card.querySelector('.remove-message-btn')?.addEventListener('click', async () => {
+        if (!confirm('Delete this message permanently?')) return
+        await removeReportedMessage(card.dataset.report!, card.dataset.message!)
+        const idx = reports.findIndex((r) => r.id === card.dataset.report)
+        if (idx >= 0) reports.splice(idx, 1)
         paint()
       })
     })

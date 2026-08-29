@@ -86,5 +86,33 @@ service cloud.firestore {
         && resource.data.toUid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt']);
     }
+
+    match /blocks/{blockId} {
+      // Same low bar as users/progressSnapshots — whether a block exists
+      // isn't sensitive enough to warrant per-document rule complexity, and
+      // that complexity has a real footgun here: a rule that inspects
+      // resource.data on a *nonexistent* doc denies rather than just
+      // returning "not found," which would break every "am I blocked?"
+      // check for the (extremely common) case where no block exists yet.
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.blockerUid == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.blockerUid == request.auth.uid;
+    }
+
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.fromUid == request.auth.uid;
+      allow update: if false; // messages are immutable — no editing after sending
+      allow delete: if isAdminUser(); // moderation only, never by either party
+    }
+
+    match /messageReports/{reportId} {
+      // Only admins can read the queue — a reporter doesn't need to read
+      // their own report back for anything the UI currently does.
+      allow read: if isAdminUser();
+      allow create: if isSignedIn() && request.resource.data.reporterUid == request.auth.uid;
+      allow update: if isAdminUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      allow delete: if isAdminUser();
+    }
   }
 }
