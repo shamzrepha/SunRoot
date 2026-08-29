@@ -14,7 +14,7 @@
 export const config = { runtime: 'edge' }
 
 const ENDPOINT = process.env.AI_ENDPOINT || 'https://api.groq.com/openai/v1/chat/completions'
-const MODEL = process.env.AI_MODEL || 'llama-3.3-70b-versatile'
+const MODEL = process.env.AI_MODEL || 'openai/gpt-oss-120b'
 
 export default async function handler(request) {
   if (request.method !== 'POST') {

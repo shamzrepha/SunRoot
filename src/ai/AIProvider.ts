@@ -53,7 +53,7 @@ export interface AIConfig {
 
 const DEFAULTS: AIConfig = {
   endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-  model: 'llama-3.3-70b-versatile',
+  model: 'openai/gpt-oss-120b',
   apiKey: '',
   // Always the deployed function. Overriding this is a developer action, not
   // something the interface asks anyone to do.
