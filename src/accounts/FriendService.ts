@@ -5,12 +5,17 @@ import type { FriendRequest, UserProfile } from './types'
 export async function sendFriendRequest(from: { uid: string; displayName: string }, to: { uid: string; displayName: string }): Promise<'sent' | 'already_pending' | 'already_friends' | 'self'> {
   if (from.uid === to.uid) return 'self'
 
-  const existing = await getDocs(
-    query(collection(db, 'friendRequests'), where('fromUid', 'in', [from.uid, to.uid])),
-  )
-  const between = existing.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<FriendRequest, 'id'>) }))
-    .filter((r) => (r.fromUid === from.uid && r.toUid === to.uid) || (r.fromUid === to.uid && r.toUid === from.uid))
+  // Two separate, narrowly-scoped queries instead of one `fromUid in [a, b]`
+  // query — that single query wasn't provable against the read rule (it
+  // could match a request the other person sent to some third party
+  // entirely, which the rule correctly refuses to reveal), so Firestore
+  // rejected the whole read with a permission error. Each query below only
+  // ever matches documents where the current user is a legitimate party.
+  const [sentByMe, sentToMe] = await Promise.all([
+    getDocs(query(collection(db, 'friendRequests'), where('fromUid', '==', from.uid), where('toUid', '==', to.uid))),
+    getDocs(query(collection(db, 'friendRequests'), where('fromUid', '==', to.uid), where('toUid', '==', from.uid))),
+  ])
+  const between = [...sentByMe.docs, ...sentToMe.docs].map((d) => ({ id: d.id, ...(d.data() as Omit<FriendRequest, 'id'>) }))
 
   if (between.some((r) => r.status === 'accepted')) return 'already_friends'
   if (between.some((r) => r.status === 'pending')) return 'already_pending'

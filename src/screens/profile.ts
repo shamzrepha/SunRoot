@@ -183,9 +183,16 @@ export function renderProfile(root: HTMLElement) {
         li.querySelector('.add-friend-btn')?.addEventListener('click', async (e) => {
           if (!target) return
           const btn = e.currentTarget as HTMLButtonElement
-          const result = await sendFriendRequest({ uid: profile!.uid, displayName: profile!.displayName }, { uid: target.uid, displayName: target.displayName })
-          btn.textContent = { sent: 'Sent', already_pending: 'Pending', already_friends: 'Already friends', self: 'That\u2019s you' }[result]
           btn.disabled = true
+          btn.textContent = 'Sending\u2026'
+          try {
+            const result = await sendFriendRequest({ uid: profile!.uid, displayName: profile!.displayName }, { uid: target.uid, displayName: target.displayName })
+            btn.textContent = { sent: 'Sent', already_pending: 'Pending', already_friends: 'Already friends', self: 'That\u2019s you' }[result]
+          } catch (err) {
+            console.error('SunRoot: send friend request failed', err)
+            btn.textContent = 'Failed \u2014 try again'
+            btn.disabled = false
+          }
         })
       })
     })
