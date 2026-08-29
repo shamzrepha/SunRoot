@@ -163,19 +163,10 @@ export async function deleteClassroom(classroomId: string, teacherId: string): P
 }
 
 // ---------------------------------------------------------------------------
-// Admin — verification and class suggestions. Every function here relies on
-// Firestore rules to actually enforce the admin check; the client-side
-// `profile.isAdmin` gate in the UI is just for hiding the screen, not security.
+// Admin — class suggestions from teachers. Relies on Firestore rules to
+// actually enforce the admin check; the client-side `profile.isAdmin` gate
+// in the UI is just for hiding the screen, not security.
 // ---------------------------------------------------------------------------
-
-export async function listUnverifiedUsers(): Promise<UserProfile[]> {
-  const snap = await getDocs(query(collection(db, 'users'), where('verified', '==', false)))
-  return snap.docs.map((d) => d.data() as UserProfile)
-}
-
-export async function verifyUser(uid: string): Promise<void> {
-  await updateDoc(doc(db, 'users', uid), { verified: true })
-}
 
 export async function submitClassSuggestion(params: {
   teacherId: string

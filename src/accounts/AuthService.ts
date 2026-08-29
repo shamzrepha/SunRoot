@@ -47,7 +47,6 @@ function buildProfile(uid: string, email: string, displayName: string, role: Rol
     role,
     createdAt: Date.now(),
     learningStyle: emptyLearningStyle(),
-    verified: false,
     ...(studentTag ? { studentTag } : {}),
     ...(role !== 'teacher' ? { classroomIds: [] } : {}),
     ...(role === 'teacher' ? { classroomsTaughtIds: [] } : {}),
@@ -123,6 +122,10 @@ export async function changePassword(newPassword: string): Promise<void> {
 export async function updateDisplayName(uid: string, displayName: string): Promise<void> {
   if (auth.currentUser) await updateProfile(auth.currentUser, { displayName })
   await updateDoc(doc(db, 'users', uid), { displayName })
+}
+
+export async function updateBio(uid: string, bio: string): Promise<void> {
+  await updateDoc(doc(db, 'users', uid), { bio })
 }
 
 export function describeAuthError(code: string): string {

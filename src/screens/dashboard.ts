@@ -1,7 +1,6 @@
 import { CONCEPTS, learner, masteryOf } from '../learning/LearnerModel'
-import { session, refreshProfile } from '../accounts/Session'
+import { session } from '../accounts/Session'
 import { listClassroomsForUser } from '../accounts/ClassroomService'
-import { updateDisplayName, requestPasswordReset } from '../accounts/AuthService'
 
 export function renderDashboard(
   root: HTMLElement,
@@ -32,11 +31,6 @@ export function renderDashboard(
           ${profile.studentTag ? `<div class="class-stat"><div class="class-figure tag-figure">${profile.studentTag}</div><div class="class-caption">your tag</div></div>` : ''}
         </div>
 
-        ${
-          !profile.verified
-            ? `<div class="verify-banner">Your account is pending admin verification. You have full access to the SunRoot Original demo class in the meantime \u2014 open it from <strong>My Classes</strong>.</div>`
-            : ''
-        }
         ${profile.isAdmin ? `<div class="admin-banner">You have admin access. <button class="link-button" id="toAdminBtn">Open the admin dashboard \u2192</button></div>` : ''}
 
         <div class="dash-grid">
@@ -96,16 +90,6 @@ export function renderDashboard(
           ${!isTeacher ? `<button class="ghost-button" id="toFind">Find a Class</button>` : ''}
           <button class="ghost-button" id="toLogout">Log out</button>
         </div>
-
-        <div class="class-panel account-panel">
-          <h2>Account</h2>
-          <form id="nameForm" class="inline-form">
-            <input type="text" id="nameInput" value="${escapeHtml(profile.displayName)}" />
-            <button type="submit" class="ghost-button small">Save name</button>
-          </form>
-          <button class="link-button" id="resetPasswordBtn">Send password reset email</button>
-          <p class="empty-note" id="accountStatus"></p>
-        </div>
       </div>
     `
 
@@ -113,22 +97,6 @@ export function renderDashboard(
     root.querySelector('#toFind')?.addEventListener('click', nav.toFindClass)
     root.querySelector('#toLogout')?.addEventListener('click', nav.onLogout)
     root.querySelector('#toAdminBtn')?.addEventListener('click', nav.toAdmin)
-
-    const statusEl = root.querySelector<HTMLParagraphElement>('#accountStatus')!
-
-    root.querySelector<HTMLFormElement>('#nameForm')?.addEventListener('submit', async (e) => {
-      e.preventDefault()
-      const input = root.querySelector<HTMLInputElement>('#nameInput')!
-      if (!input.value.trim()) return
-      await updateDisplayName(profile.uid, input.value.trim())
-      await refreshProfile()
-      statusEl.textContent = 'Name updated.'
-    })
-
-    root.querySelector('#resetPasswordBtn')?.addEventListener('click', async () => {
-      await requestPasswordReset(profile.email)
-      statusEl.textContent = 'Password reset email sent \u2014 check your inbox.'
-    })
   })
 }
 

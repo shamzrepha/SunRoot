@@ -4,6 +4,7 @@ export type Screen =
   | 'classes'
   | 'findClass'
   | 'admin'
+  | 'profile'
   | 'loading'
   | 'intro'
   | 'shed'

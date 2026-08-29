@@ -28,6 +28,7 @@ import { renderDashboard } from './screens/dashboard'
 import { renderClasses } from './screens/classes'
 import { renderFindClass } from './screens/findClass'
 import { renderAdmin } from './screens/admin'
+import { renderProfile } from './screens/profile'
 
 const root = document.querySelector<HTMLDivElement>('#app')!
 let shellMounted = false
@@ -184,6 +185,8 @@ export function goTo(screen: Screen) {
       renderFindClass(host)
     } else if (screen === 'admin') {
       renderAdmin(host)
+    } else if (screen === 'profile') {
+      renderProfile(host)
     } else if (screen === 'learning') {
       renderLearning(host)
     } else if (screen === 'teacher') {

@@ -3380,3 +3380,72 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
   .role-tabs { grid-template-columns: 1fr; }
   .lab-header { flex-direction: column; align-items: flex-start; gap: 12px; }
 }
+
+/* ---------- Profile chip (sidebar) + Profile page ---------- */
+
+.profile-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid #3a4a3f;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.profile-chip:hover { border-color: #4fd67a; background: rgba(79,214,122,0.06); }
+
+.profile-avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #4fd67a;
+  color: #0c150f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.profile-chip-info { display: flex; flex-direction: column; min-width: 0; }
+.profile-chip-name { font-size: 13px; font-weight: 600; color: #eaf9ee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-chip-role { font-size: 11px; color: #8f9bad; }
+
+.profile-header { display: flex; align-items: center; gap: 16px; margin: 0 40px 20px; }
+.profile-avatar-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #4fd67a;
+  color: #0c150f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.profile-name { font-size: 20px; font-weight: 700; color: #eaf9ee; }
+.profile-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+
+.role-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.role-badge.role-teacher { background: rgba(232,185,66,0.15); color: #e8b942; border: 1px solid rgba(232,185,66,0.4); }
+.role-badge.role-student { background: rgba(79,214,122,0.15); color: #4fd67a; border: 1px solid rgba(79,214,122,0.4); }
+.role-badge.role-individual { background: rgba(127,216,255,0.15); color: #7fd8ff; border: 1px solid rgba(127,216,255,0.4); }
+
+@media (max-width: 640px) {
+  .profile-header { margin-left: 16px; margin-right: 16px; }
+}

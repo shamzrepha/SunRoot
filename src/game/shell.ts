@@ -3,6 +3,7 @@ import { setSpeechEnabled, isSpeechEnabled, hide as hideAssistant } from '../ai/
 import { icon } from '../ui/icons'
 import { sfx, setSoundEnabled, isSoundEnabled } from './sound'
 import type { Screen } from '../appState'
+import { session } from '../accounts/Session'
 
 export interface NavItem {
   group?: string
@@ -53,6 +54,14 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
           <button class="sound-toggle" id="soundToggle">Sound: On</button>
           <button class="sound-toggle" id="voiceToggle">Voice: Off</button>
         </div>
+
+        <button class="profile-chip" id="profileChip">
+          <span class="profile-avatar" id="profileAvatar">?</span>
+          <span class="profile-chip-info">
+            <span class="profile-chip-name" id="profileChipName">\u2026</span>
+            <span class="profile-chip-role" id="profileChipRole"></span>
+          </span>
+        </button>
       </aside>
 
       <div class="main-col">
@@ -78,10 +87,34 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
     if (!isSpeechEnabled()) hideAssistant()
   })
 
+  root.querySelector<HTMLButtonElement>('#profileChip')!.addEventListener('click', () => {
+    onNavigate?.('profile')
+  })
+  updateProfileChip()
+
   return {
     view: root.querySelector<HTMLDivElement>('#view')!,
     hud: root.querySelector<HTMLDivElement>('#hud')!,
   }
+}
+
+/** Refreshes the sidebar profile chip from the current session. Call after any change to the signed-in user's name. */
+export function updateProfileChip() {
+  const profile = session.profile
+  const avatar = document.querySelector<HTMLElement>('#profileAvatar')
+  const nameEl = document.querySelector<HTMLElement>('#profileChipName')
+  const roleEl = document.querySelector<HTMLElement>('#profileChipRole')
+  if (!avatar || !nameEl || !roleEl) return
+  if (!profile) {
+    nameEl.textContent = 'Account'
+    roleEl.textContent = ''
+    avatar.textContent = '?'
+    return
+  }
+  const parts = profile.displayName.trim().split(/\s+/)
+  avatar.textContent = ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+  nameEl.textContent = profile.displayName
+  roleEl.textContent = profile.role.charAt(0).toUpperCase() + profile.role.slice(1)
 }
 
 export function renderNav(items: NavItem[], active: Screen) {

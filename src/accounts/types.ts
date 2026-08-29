@@ -19,14 +19,8 @@ export interface UserProfile {
   classroomIds?: string[]
   classroomsTaughtIds?: string[]
   learningStyle: LearningStyleProfile
-  /**
-   * All accounts start unverified. Verification is granted by an admin (see
-   * `isAdmin`), never by the account holder — Firestore rules enforce this.
-   * Unverified accounts can browse and use the admin demo classroom, but
-   * cannot create a classroom (teacher) or join anything beyond the demo
-   * classroom (student/individual).
-   */
-  verified: boolean
+  /** Optional short bio shown on the profile page. */
+  bio?: string
   /**
    * Set manually via the Firebase console (Admin SDK), never through the
    * app. Firestore rules reject any client write that changes this field,

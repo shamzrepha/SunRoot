@@ -14,24 +14,16 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isSignedIn();
-      // New accounts always start unverified and never admin, regardless of
-      // what a crafted client request claims.
+      // New accounts are never admin, regardless of what a crafted client
+      // request claims — isAdmin can only be granted via the Firebase console.
       allow create: if isSelf(uid)
-        && request.resource.data.verified == false
         && (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false);
-      // A user may update their own profile, but never their role, tag,
-      // verification status, or admin flag. An admin may flip *only*
-      // `verified` on any user's doc — nothing else, on anyone.
-      allow update: if (
-        isSelf(uid)
+      // A user may update their own profile (name, bio, etc.) freely, but
+      // never their role, tag, or admin flag.
+      allow update: if isSelf(uid)
         && request.resource.data.role == resource.data.role
         && request.resource.data.studentTag == resource.data.studentTag
-        && request.resource.data.verified == resource.data.verified
-        && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
-      ) || (
-        isAdminUser()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified'])
-      );
+        && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false);
     }
 
     match /classrooms/{classroomId} {

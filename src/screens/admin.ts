@@ -1,11 +1,6 @@
 import { session } from '../accounts/Session'
-import {
-  listUnverifiedUsers,
-  verifyUser,
-  listClassSuggestions,
-  markSuggestionReviewed,
-} from '../accounts/ClassroomService'
-import type { ClassSuggestion, UserProfile } from '../accounts/types'
+import { listClassSuggestions, markSuggestionReviewed } from '../accounts/ClassroomService'
+import type { ClassSuggestion } from '../accounts/types'
 
 export async function renderAdmin(root: HTMLElement) {
   const profile = session.profile
@@ -16,36 +11,18 @@ export async function renderAdmin(root: HTMLElement) {
 
   root.innerHTML = `<div class="screen"><p class="empty-note">Loading admin dashboard\u2026</p></div>`
 
-  const [pending, suggestions] = await Promise.all([listUnverifiedUsers(), listClassSuggestions()])
-  paint(root, pending, suggestions)
+  const suggestions = await listClassSuggestions()
+  paint(root, suggestions)
 }
 
-function paint(root: HTMLElement, pending: UserProfile[], suggestions: ClassSuggestion[]) {
+function paint(root: HTMLElement, suggestions: ClassSuggestion[]) {
   const newSuggestions = suggestions.filter((s) => s.status === 'new')
   const reviewedSuggestions = suggestions.filter((s) => s.status === 'reviewed')
 
   root.innerHTML = `
     <div class="screen">
       <div class="lab-header">
-        <div><h1>Admin</h1><p>Verify accounts and review class-topic requests from teachers.</p></div>
-      </div>
-
-      <div class="class-panel">
-        <h2>Pending verification (${pending.length})</h2>
-        ${
-          pending.length
-            ? `<ul class="roster-list">
-                ${pending
-                  .map(
-                    (u) => `<li data-uid="${u.uid}">
-                      <span>${escapeHtml(u.displayName)} \u00b7 ${u.role}${u.studentTag ? ` \u00b7 ${u.studentTag}` : ''} \u00b7 ${escapeHtml(u.email)}</span>
-                      <button class="ghost-button small verify-btn">Verify</button>
-                    </li>`,
-                  )
-                  .join('')}
-              </ul>`
-            : `<p class="empty-note">Nobody is waiting on verification.</p>`
-        }
+        <div><h1>Admin</h1><p>Class-topic requests from teachers.</p></div>
       </div>
 
       <div class="class-panel">
@@ -79,19 +56,11 @@ function paint(root: HTMLElement, pending: UserProfile[], suggestions: ClassSugg
     </div>
   `
 
-  root.querySelectorAll<HTMLElement>('.roster-list li').forEach((li) => {
-    li.querySelector('.verify-btn')?.addEventListener('click', async () => {
-      await verifyUser(li.dataset.uid!)
-      const remaining = pending.filter((u) => u.uid !== li.dataset.uid)
-      paint(root, remaining, suggestions)
-    })
-  })
-
   root.querySelectorAll<HTMLElement>('.suggestion-card').forEach((card) => {
     card.querySelector('.reviewed-btn')?.addEventListener('click', async () => {
       await markSuggestionReviewed(card.dataset.id!)
       const updated = suggestions.map((s) => (s.id === card.dataset.id ? { ...s, status: 'reviewed' as const } : s))
-      paint(root, pending, updated)
+      paint(root, updated)
     })
   })
 }

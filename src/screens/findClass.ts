@@ -13,23 +13,17 @@ export async function renderFindClass(root: HTMLElement) {
       <div class="lab-header">
         <div><h1>Find a Class</h1><p>Open classes anyone can join and learn from.</p></div>
       </div>
-      ${
-        !profile.verified
-          ? `<div class="verify-banner">Your account is pending admin verification. You can join the SunRoot Original demo class now \u2014 other classes unlock once you\u2019re verified.</div>`
-          : ''
-      }
       <div class="dash-grid two-col">
         ${classrooms
           .map((c) => {
             const alreadyIn = profile.classroomIds?.includes(c.id)
-            const locked = !profile.verified && !c.isDemo
             return `<div class="class-panel" data-classroom="${c.id}">
               <h2>${escapeHtml(c.name)} ${c.isDemo ? '<span class="tag-badge">Demo</span>' : ''}</h2>
               <p class="empty-note">by ${escapeHtml(c.teacherName)} \u00b7 ${escapeHtml(c.topic)}</p>
               ${c.description ? `<p class="empty-note">${escapeHtml(c.description)}</p>` : ''}
               <p class="empty-note">${c.studentIds.length} student${c.studentIds.length === 1 ? '' : 's'} enrolled</p>
-              <button class="primary-button join-btn" ${alreadyIn || locked ? 'disabled' : ''}>
-                ${alreadyIn ? 'Already joined' : locked ? 'Verification required' : 'Join class'}
+              <button class="primary-button join-btn" ${alreadyIn ? 'disabled' : ''}>
+                ${alreadyIn ? 'Already joined' : 'Join class'}
               </button>
             </div>`
           })

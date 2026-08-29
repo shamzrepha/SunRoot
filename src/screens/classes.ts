@@ -39,12 +39,6 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: { toWork
         </div>
 
         ${
-          !profile.verified
-            ? `<div class="verify-banner">Your account is pending admin verification. You can browse and use the SunRoot Original demo class now \u2014 ${profile.role === 'teacher' ? 'creating a class' : 'joining other classes'} unlocks once you\u2019re verified.</div>`
-            : ''
-        }
-
-        ${
           invites.length
             ? `<div class="class-panel">
                 <h2>Pending invites</h2>
@@ -66,7 +60,7 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: { toWork
         ${
           profile.role === 'teacher'
             ? !showCreateForm
-              ? `<button class="ghost-button" id="showCreateBtn" ${!profile.verified ? 'disabled title="Verification required"' : ''}>+ New class</button>`
+              ? `<button class="ghost-button" id="showCreateBtn">+ New class</button>`
               : `<div class="class-panel">
                   <h2>Create a class</h2>
                   <form id="createClassForm" class="inline-form-stack">
