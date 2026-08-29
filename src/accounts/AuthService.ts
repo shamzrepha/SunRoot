@@ -1,12 +1,16 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  sendPasswordResetEmail,
+  updatePassword as fbUpdatePassword,
   signOut,
   updateProfile,
   onAuthStateChanged,
   type User as FirebaseUser,
 } from 'firebase/auth'
-import { doc, setDoc, getDoc, getDocs, query, collection, where, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, getDoc, getDocs, updateDoc, query, collection, where, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from './firebase'
 import type { Role, UserProfile } from './types'
 
@@ -35,6 +39,21 @@ async function generateUniqueStudentTag(): Promise<string> {
   return `${randomTag()}-${Date.now().toString(36).toUpperCase().slice(-3)}`
 }
 
+function buildProfile(uid: string, email: string, displayName: string, role: Role, studentTag?: string): UserProfile {
+  return {
+    uid,
+    email,
+    displayName,
+    role,
+    createdAt: Date.now(),
+    learningStyle: emptyLearningStyle(),
+    verified: false,
+    ...(studentTag ? { studentTag } : {}),
+    ...(role !== 'teacher' ? { classroomIds: [] } : {}),
+    ...(role === 'teacher' ? { classroomsTaughtIds: [] } : {}),
+  }
+}
+
 export async function signUp(params: {
   email: string
   password: string
@@ -46,18 +65,7 @@ export async function signUp(params: {
   await updateProfile(credential.user, { displayName })
 
   const studentTag = role === 'teacher' ? undefined : await generateUniqueStudentTag()
-
-  const profile: UserProfile = {
-    uid: credential.user.uid,
-    email,
-    displayName,
-    role,
-    createdAt: Date.now(),
-    learningStyle: emptyLearningStyle(),
-    ...(studentTag ? { studentTag } : {}),
-    ...(role !== 'teacher' ? { classroomIds: [] } : {}),
-    ...(role === 'teacher' ? { classroomsTaughtIds: [] } : {}),
-  }
+  const profile = buildProfile(credential.user.uid, email, displayName, role, studentTag)
 
   await setDoc(doc(db, 'users', credential.user.uid), { ...profile, createdAt: serverTimestamp() })
   return profile
@@ -66,6 +74,27 @@ export async function signUp(params: {
 export async function logIn(email: string, password: string): Promise<FirebaseUser> {
   const credential = await signInWithEmailAndPassword(auth, email, password)
   return credential.user
+}
+
+/**
+ * Google sign-in. Returns whether this is a brand-new account — the caller
+ * must then collect a role (Teacher/Student/Individual) via
+ * completeGoogleSignup(), since Google gives us no way to know which one a
+ * first-time user wants. Returning users skip straight through.
+ */
+export async function signInWithGoogle(): Promise<{ user: FirebaseUser; isNewUser: boolean }> {
+  const credential = await signInWithPopup(auth, new GoogleAuthProvider())
+  const existing = await getDoc(doc(db, 'users', credential.user.uid))
+  return { user: credential.user, isNewUser: !existing.exists() }
+}
+
+/** Call right after signInWithGoogle() reports isNewUser: true. */
+export async function completeGoogleSignup(user: FirebaseUser, role: Role): Promise<UserProfile> {
+  const displayName = user.displayName ?? user.email ?? 'New user'
+  const studentTag = role === 'teacher' ? undefined : await generateUniqueStudentTag()
+  const profile = buildProfile(user.uid, user.email ?? '', displayName, role, studentTag)
+  await setDoc(doc(db, 'users', user.uid), { ...profile, createdAt: serverTimestamp() })
+  return profile
 }
 
 export async function logOut(): Promise<void> {
@@ -79,6 +108,21 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
 
 export function onAuthChange(callback: (user: FirebaseUser | null) => void) {
   return onAuthStateChanged(auth, callback)
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email)
+}
+
+/** Changes the password for the currently signed-in user (must have recently logged in). */
+export async function changePassword(newPassword: string): Promise<void> {
+  if (!auth.currentUser) throw new Error('Not signed in')
+  await fbUpdatePassword(auth.currentUser, newPassword)
+}
+
+export async function updateDisplayName(uid: string, displayName: string): Promise<void> {
+  if (auth.currentUser) await updateProfile(auth.currentUser, { displayName })
+  await updateDoc(doc(db, 'users', uid), { displayName })
 }
 
 export function describeAuthError(code: string): string {
@@ -95,7 +139,12 @@ export function describeAuthError(code: string): string {
       return 'Email or password is incorrect.'
     case 'auth/too-many-requests':
       return 'Too many attempts. Wait a moment and try again.'
+    case 'auth/popup-closed-by-user':
+      return 'Google sign-in was closed before finishing.'
+    case 'auth/requires-recent-login':
+      return 'Please log out and back in, then try changing your password again.'
     default:
       return 'Something went wrong. Please try again.'
   }
 }
+

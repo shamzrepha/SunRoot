@@ -1,10 +1,11 @@
 import { CONCEPTS, learner, masteryOf } from '../learning/LearnerModel'
-import { session } from '../accounts/Session'
+import { session, refreshProfile } from '../accounts/Session'
 import { listClassroomsForUser } from '../accounts/ClassroomService'
+import { updateDisplayName, requestPasswordReset } from '../accounts/AuthService'
 
 export function renderDashboard(
   root: HTMLElement,
-  nav: { toClasses: () => void; toFindClass: () => void; toFarm: () => void; onLogout: () => void },
+  nav: { toClasses: () => void; toFindClass: () => void; onLogout: () => void; toAdmin: () => void },
 ) {
   const profile = session.profile
   if (!profile) return
@@ -30,6 +31,13 @@ export function renderDashboard(
           </div>
           ${profile.studentTag ? `<div class="class-stat"><div class="class-figure tag-figure">${profile.studentTag}</div><div class="class-caption">your tag</div></div>` : ''}
         </div>
+
+        ${
+          !profile.verified
+            ? `<div class="verify-banner">Your account is pending admin verification. You have full access to the SunRoot Original demo class in the meantime \u2014 open it from <strong>My Classes</strong>.</div>`
+            : ''
+        }
+        ${profile.isAdmin ? `<div class="admin-banner">You have admin access. <button class="link-button" id="toAdminBtn">Open the admin dashboard \u2192</button></div>` : ''}
 
         <div class="dash-grid">
           <div class="teach-card">
@@ -61,7 +69,7 @@ export function renderDashboard(
                               <span class="cb-pct">${Math.round(m * 100)}%</span></div>`
                           })
                           .join('')}</div>`
-                      : `<p class="empty-note">Nothing mastered yet \u2014 head into the workshop to get started.</p>`
+                      : `<p class="empty-note">Nothing mastered yet \u2014 open a class to get started.</p>`
                   }
                 </section>
                 <aside class="teacher-panel">
@@ -85,17 +93,42 @@ export function renderDashboard(
 
         <div class="dash-actions">
           <button class="primary-button" id="toClasses">My Classes</button>
-          <button class="ghost-button" id="toFind">Find a Class</button>
-          <button class="ghost-button" id="toFarm">Continue building</button>
+          ${!isTeacher ? `<button class="ghost-button" id="toFind">Find a Class</button>` : ''}
           <button class="ghost-button" id="toLogout">Log out</button>
+        </div>
+
+        <div class="class-panel account-panel">
+          <h2>Account</h2>
+          <form id="nameForm" class="inline-form">
+            <input type="text" id="nameInput" value="${escapeHtml(profile.displayName)}" />
+            <button type="submit" class="ghost-button small">Save name</button>
+          </form>
+          <button class="link-button" id="resetPasswordBtn">Send password reset email</button>
+          <p class="empty-note" id="accountStatus"></p>
         </div>
       </div>
     `
 
     root.querySelector('#toClasses')?.addEventListener('click', nav.toClasses)
     root.querySelector('#toFind')?.addEventListener('click', nav.toFindClass)
-    root.querySelector('#toFarm')?.addEventListener('click', nav.toFarm)
     root.querySelector('#toLogout')?.addEventListener('click', nav.onLogout)
+    root.querySelector('#toAdminBtn')?.addEventListener('click', nav.toAdmin)
+
+    const statusEl = root.querySelector<HTMLParagraphElement>('#accountStatus')!
+
+    root.querySelector<HTMLFormElement>('#nameForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const input = root.querySelector<HTMLInputElement>('#nameInput')!
+      if (!input.value.trim()) return
+      await updateDisplayName(profile.uid, input.value.trim())
+      await refreshProfile()
+      statusEl.textContent = 'Name updated.'
+    })
+
+    root.querySelector('#resetPasswordBtn')?.addEventListener('click', async () => {
+      await requestPasswordReset(profile.email)
+      statusEl.textContent = 'Password reset email sent \u2014 check your inbox.'
+    })
   })
 }
 

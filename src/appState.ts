@@ -3,6 +3,7 @@ export type Screen =
   | 'dashboard'
   | 'classes'
   | 'findClass'
+  | 'admin'
   | 'loading'
   | 'intro'
   | 'shed'

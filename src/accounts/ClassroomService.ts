@@ -16,7 +16,7 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import { db } from './firebase'
-import type { Classroom, ClassroomInvite, UserProfile } from './types'
+import type { Classroom, ClassroomInvite, ClassSuggestion, UserProfile } from './types'
 
 const DEMO_CLASSROOM_ID = 'sunroot-original'
 const SYSTEM_TEACHER_ID = 'sunroot-system'
@@ -28,8 +28,10 @@ export async function ensureDemoClassroomExists(): Promise<void> {
   if (snap.exists()) return
   await setDoc(ref, {
     teacherId: SYSTEM_TEACHER_ID,
+    teacherName: 'Admin',
     name: 'SunRoot Original \u2014 Digital Twin Practical',
-    description: 'The first practical session: wire a live solar + irrigation digital twin from scratch. Open to everyone.',
+    description: 'The first practical session: wire a live solar + irrigation digital twin from scratch. Open to everyone, no verification required.',
+    topic: 'Solar & Irrigation Systems',
     visibility: 'public',
     studentIds: [],
     createdAt: serverTimestamp(),
@@ -39,14 +41,18 @@ export async function ensureDemoClassroomExists(): Promise<void> {
 
 export async function createClassroom(params: {
   teacherId: string
+  teacherName: string
   name: string
   description?: string
+  topic: string
   visibility: 'public' | 'private'
 }): Promise<string> {
   const ref = await addDoc(collection(db, 'classrooms'), {
     teacherId: params.teacherId,
+    teacherName: params.teacherName,
     name: params.name,
     description: params.description ?? '',
+    topic: params.topic,
     visibility: params.visibility,
     studentIds: [],
     createdAt: serverTimestamp(),
@@ -60,6 +66,11 @@ export async function listClassroomsForUser(profile: UserProfile): Promise<Class
   if (ids.length === 0) return []
   const docs = await Promise.all(ids.map((id) => getDoc(doc(db, 'classrooms', id))))
   return docs.filter((d) => d.exists()).map((d) => ({ id: d.id, ...(d.data() as Omit<Classroom, 'id'>) }))
+}
+
+export async function getClassroom(classroomId: string): Promise<Classroom | null> {
+  const snap = await getDoc(doc(db, 'classrooms', classroomId))
+  return snap.exists() ? { id: snap.id, ...(snap.data() as Omit<Classroom, 'id'>) } : null
 }
 
 export async function listPublicClassrooms(): Promise<Classroom[]> {
@@ -149,4 +160,46 @@ export async function respondToInvite(inviteId: string, accept: boolean, uid: st
 export async function deleteClassroom(classroomId: string, teacherId: string): Promise<void> {
   await deleteDoc(doc(db, 'classrooms', classroomId))
   await updateDoc(doc(db, 'users', teacherId), { classroomsTaughtIds: arrayRemove(classroomId) })
+}
+
+// ---------------------------------------------------------------------------
+// Admin — verification and class suggestions. Every function here relies on
+// Firestore rules to actually enforce the admin check; the client-side
+// `profile.isAdmin` gate in the UI is just for hiding the screen, not security.
+// ---------------------------------------------------------------------------
+
+export async function listUnverifiedUsers(): Promise<UserProfile[]> {
+  const snap = await getDocs(query(collection(db, 'users'), where('verified', '==', false)))
+  return snap.docs.map((d) => d.data() as UserProfile)
+}
+
+export async function verifyUser(uid: string): Promise<void> {
+  await updateDoc(doc(db, 'users', uid), { verified: true })
+}
+
+export async function submitClassSuggestion(params: {
+  teacherId: string
+  teacherName: string
+  title: string
+  description: string
+}): Promise<void> {
+  await addDoc(collection(db, 'classSuggestions'), {
+    teacherId: params.teacherId,
+    teacherName: params.teacherName,
+    title: params.title,
+    description: params.description,
+    status: 'new',
+    createdAt: serverTimestamp(),
+  })
+}
+
+export async function listClassSuggestions(): Promise<ClassSuggestion[]> {
+  const snap = await getDocs(collection(db, 'classSuggestions'))
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<ClassSuggestion, 'id'>) }))
+    .sort((a, b) => b.createdAt - a.createdAt)
+}
+
+export async function markSuggestionReviewed(id: string): Promise<void> {
+  await updateDoc(doc(db, 'classSuggestions', id), { status: 'reviewed' })
 }

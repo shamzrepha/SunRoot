@@ -4,14 +4,34 @@ service cloud.firestore {
 
     function isSignedIn() { return request.auth != null; }
     function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
+    // Admin status can only ever be set via the Firebase console (Admin SDK
+    // bypasses these rules entirely) — there is deliberately no path here
+    // for a client, even an existing admin, to grant isAdmin to anyone.
+    function isAdminUser() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
 
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create: if isSelf(uid);
-      // Never let a client change their own role or studentTag after creation.
-      allow update: if isSelf(uid)
+      // New accounts always start unverified and never admin, regardless of
+      // what a crafted client request claims.
+      allow create: if isSelf(uid)
+        && request.resource.data.verified == false
+        && (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false);
+      // A user may update their own profile, but never their role, tag,
+      // verification status, or admin flag. An admin may flip *only*
+      // `verified` on any user's doc — nothing else, on anyone.
+      allow update: if (
+        isSelf(uid)
         && request.resource.data.role == resource.data.role
-        && request.resource.data.studentTag == resource.data.studentTag;
+        && request.resource.data.studentTag == resource.data.studentTag
+        && request.resource.data.verified == resource.data.verified
+        && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
+      ) || (
+        isAdminUser()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified'])
+      );
     }
 
     match /classrooms/{classroomId} {
@@ -38,6 +58,15 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.auth.uid in request.resource.data.memberUids;
       allow update: if isSignedIn(); // MVP: any signed-in user can update shared state
+    }
+
+    match /classSuggestions/{suggestionId} {
+      allow read: if isSignedIn() && (resource.data.teacherId == request.auth.uid || isAdminUser());
+      allow create: if isSignedIn()
+        && request.resource.data.teacherId == request.auth.uid
+        && request.resource.data.status == 'new';
+      allow update: if isAdminUser()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
     }
   }
 }

@@ -19,13 +19,30 @@ export interface UserProfile {
   classroomIds?: string[]
   classroomsTaughtIds?: string[]
   learningStyle: LearningStyleProfile
+  /**
+   * All accounts start unverified. Verification is granted by an admin (see
+   * `isAdmin`), never by the account holder — Firestore rules enforce this.
+   * Unverified accounts can browse and use the admin demo classroom, but
+   * cannot create a classroom (teacher) or join anything beyond the demo
+   * classroom (student/individual).
+   */
+  verified: boolean
+  /**
+   * Set manually via the Firebase console (Admin SDK), never through the
+   * app. Firestore rules reject any client write that changes this field,
+   * including by an existing admin, so there is no self-serve path to it.
+   */
+  isAdmin?: boolean
 }
 
 export interface Classroom {
   id: string
   teacherId: string
+  /** Denormalised at creation time so listings never need an extra read per row. */
+  teacherName: string
   name: string
   description?: string
+  topic: string
   visibility: 'public' | 'private'
   studentIds: string[]
   createdAt: number
@@ -53,3 +70,26 @@ export interface Team {
   createdAt: number
   updatedAt: number
 }
+
+export type SuggestionStatus = 'new' | 'reviewed'
+
+/** A teacher's request for a class topic that doesn't exist yet — surfaced to the admin. */
+export interface ClassSuggestion {
+  id: string
+  teacherId: string
+  teacherName: string
+  title: string
+  description: string
+  status: SuggestionStatus
+  createdAt: number
+}
+
+export const CLASS_TOPICS = [
+  'Solar & Irrigation Systems',
+  'Robotics & Automation',
+  'Water Treatment & Hydraulics',
+  'Structural & Bridge Engineering',
+  'Gear Reduction & Mechanical Drives',
+  'Other (not yet available)',
+] as const
+

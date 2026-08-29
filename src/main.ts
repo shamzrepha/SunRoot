@@ -27,31 +27,50 @@ import { renderLogin } from './screens/login'
 import { renderDashboard } from './screens/dashboard'
 import { renderClasses } from './screens/classes'
 import { renderFindClass } from './screens/findClass'
+import { renderAdmin } from './screens/admin'
 
 const root = document.querySelector<HTMLDivElement>('#app')!
 let shellMounted = false
 let hudTimer = 0
 
-function navItems(): NavItem[] {
-  // Grouped deliberately. Eleven flat items was the single biggest cause of
-  // "I opened it and did not know where to go" — the four that matter are the
-  // build loop, and everything else is progress the student can ignore.
-  return [
-    { id: 'farm', label: 'Farm', icon: icon('farm'), group: 'Build' },
-    { id: 'shed', label: 'Tool shed', icon: icon('shed'), group: 'Build' },
-    { id: 'circuit', label: 'Circuit lab', icon: icon('circuit'), group: 'Build' },
-    { id: 'coding', label: 'Coding lab', icon: icon('code'), group: 'Build' },
-    { id: 'learning', label: 'Learning model', icon: icon('brain'), group: 'Progress' },
-    { id: 'quiz', label: 'Learning check', icon: icon('quiz'), group: 'Progress' },
-    { id: 'report', label: 'Report', icon: icon('report'), group: 'Progress' },
-    { id: 'rewards', label: 'Rewards', icon: icon('rewards'), group: 'Progress' },
-    { id: 'tutor', label: 'Tutor', icon: icon('tutor'), group: 'Progress' },
-    { id: 'dashboard', label: 'Dashboard', icon: icon('class'), group: 'Account' },
-    { id: 'classes', label: 'My Classes', icon: icon('class'), group: 'Account' },
-    { id: 'findClass', label: 'Find a Class', icon: icon('class'), group: 'Account' },
-    { id: 'teacher', label: 'Concept report', icon: icon('class'), group: 'More' },
-    { id: 'access', label: 'Accessibility', icon: icon('access'), group: 'More' },
-  ].map((n) => ({ ...n, id: n.id as Screen }))
+const WORKSHOP_SCREENS: Screen[] = ['farm', 'shed', 'circuit', 'coding', 'learning', 'quiz', 'report', 'rewards', 'tutor']
+
+function navItems(screen: Screen): NavItem[] {
+  // The build/progress screens are the actual digital twin — deliberately
+  // NOT shown until the student has opened a classroom's workshop, so
+  // logging in lands on the school portal (Dashboard/Classes), not straight
+  // into the simulation. Once inside, they stay visible so moving between
+  // Tool Shed → Circuit Lab → Coding Lab → Farm doesn't require detouring
+  // back through a classroom page every time.
+  const inWorkshop = WORKSHOP_SCREENS.includes(screen)
+  const role = session.profile?.role
+
+  const items: (NavItem & { group: string })[] = []
+
+  items.push({ id: 'dashboard' as Screen, label: 'Dashboard', icon: icon('class'), group: 'Account' })
+  items.push({ id: 'classes' as Screen, label: 'My Classes', icon: icon('class'), group: 'Account' })
+  if (role !== 'teacher') {
+    items.push({ id: 'findClass' as Screen, label: 'Find a Class', icon: icon('class'), group: 'Account' })
+  }
+  if (session.profile?.isAdmin) {
+    items.push({ id: 'admin' as Screen, label: 'Admin', icon: icon('class'), group: 'Account' })
+  }
+
+  if (inWorkshop) {
+    items.push({ id: 'farm' as Screen, label: 'Farm', icon: icon('farm'), group: 'Build' })
+    items.push({ id: 'shed' as Screen, label: 'Tool shed', icon: icon('shed'), group: 'Build' })
+    items.push({ id: 'circuit' as Screen, label: 'Circuit lab', icon: icon('circuit'), group: 'Build' })
+    items.push({ id: 'coding' as Screen, label: 'Coding lab', icon: icon('code'), group: 'Build' })
+    items.push({ id: 'learning' as Screen, label: 'Learning model', icon: icon('brain'), group: 'Progress' })
+    items.push({ id: 'quiz' as Screen, label: 'Learning check', icon: icon('quiz'), group: 'Progress' })
+    items.push({ id: 'report' as Screen, label: 'Report', icon: icon('report'), group: 'Progress' })
+    items.push({ id: 'rewards' as Screen, label: 'Rewards', icon: icon('rewards'), group: 'Progress' })
+    items.push({ id: 'tutor' as Screen, label: 'Tutor', icon: icon('tutor'), group: 'Progress' })
+  }
+
+  items.push({ id: 'access' as Screen, label: 'Accessibility', icon: icon('access'), group: 'More' })
+
+  return items
 }
 
 function startHudTicker() {
@@ -113,7 +132,7 @@ export function goTo(screen: Screen) {
 
   ensureShell()
   hideAssistant()
-  renderNav(navItems(), screen)
+  renderNav(navItems(screen), screen)
   updateRankUi()
 
   transitionView((host) => {
@@ -156,13 +175,15 @@ export function goTo(screen: Screen) {
       renderDashboard(host, {
         toClasses: () => goTo('classes'),
         toFindClass: () => goTo('findClass'),
-        toFarm: () => goTo('farm'),
         onLogout: () => logOut().then(() => goTo('login')),
+        toAdmin: () => goTo('admin'),
       })
     } else if (screen === 'classes') {
-      renderClasses(host)
+      renderClasses(host, { toWorkshop: () => goTo('farm') })
     } else if (screen === 'findClass') {
       renderFindClass(host)
+    } else if (screen === 'admin') {
+      renderAdmin(host)
     } else if (screen === 'learning') {
       renderLearning(host)
     } else if (screen === 'teacher') {
