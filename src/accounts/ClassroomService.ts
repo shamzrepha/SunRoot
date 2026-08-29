@@ -61,11 +61,22 @@ export async function createClassroom(params: {
   return ref.id
 }
 
+/**
+ * Reads directly from the `classrooms` collection rather than the
+ * `classroomsTaughtIds`/`classroomIds` arrays on the user doc. Those arrays
+ * are still written (invite/removal logic checks them), but using them as
+ * the source of truth for this list is what caused newly created classes to
+ * sometimes not show up — if that second write ever lagged behind or raced
+ * with a profile refresh, the class existed but the list didn't know it yet.
+ * A direct query can't drift out of sync like that.
+ */
 export async function listClassroomsForUser(profile: UserProfile): Promise<Classroom[]> {
-  const ids = profile.role === 'teacher' ? profile.classroomsTaughtIds ?? [] : profile.classroomIds ?? []
-  if (ids.length === 0) return []
-  const docs = await Promise.all(ids.map((id) => getDoc(doc(db, 'classrooms', id))))
-  return docs.filter((d) => d.exists()).map((d) => ({ id: d.id, ...(d.data() as Omit<Classroom, 'id'>) }))
+  const field = profile.role === 'teacher' ? 'teacherId' : 'studentIds'
+  const snap =
+    profile.role === 'teacher'
+      ? await getDocs(query(collection(db, 'classrooms'), where(field, '==', profile.uid)))
+      : await getDocs(query(collection(db, 'classrooms'), where(field, 'array-contains', profile.uid)))
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Classroom, 'id'>) }))
 }
 
 export async function getClassroom(classroomId: string): Promise<Classroom | null> {
