@@ -73,5 +73,18 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && request.resource.data.uid == request.auth.uid;
     }
+
+    match /friendRequests/{requestId} {
+      // Only the two people involved can see a request at all.
+      allow read: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow create: if isSignedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      // Only the recipient can respond, and only the status/timestamp — not
+      // who it's from/to, which would let someone hijack another pair's request.
+      allow update: if isSignedIn()
+        && resource.data.toUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'respondedAt']);
+    }
   }
 }

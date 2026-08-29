@@ -72,6 +72,15 @@ export interface TeamCommit {
   timestamp: number
 }
 
+export interface TeamPurchase {
+  uid: string
+  displayName: string
+  partName: string
+  quantityAdded: number
+  cost: number
+  timestamp: number
+}
+
 export interface Team {
   id: string
   classroomId: string
@@ -79,6 +88,10 @@ export interface Team {
   memberUids: string[]
   /** Self-selected by each member; not everyone has to pick one. */
   memberRoles: Record<string, TeamRole>
+  /** Shared credit pool — fixed at creation, persists across membership changes (unlike an individual's solo budget). */
+  budget: number
+  /** Who bought what, most recent first, capped at 30 — visible to any member even if they joined after the purchase. */
+  purchaseLog: TeamPurchase[]
   /**
    * The team's actual shared farm/circuit/code state — what a member pulls
    * when they enter the team workshop, and what gets overwritten wholesale
@@ -151,4 +164,38 @@ export interface ProgressSnapshot {
     }
   >
   updatedAt: number
+}
+export type FriendRequestStatus = 'pending' | 'accepted' | 'declined'
+
+/**
+ * Both the invite AND the friendship record — an accepted request IS the
+ * friendship, so there's no separate `friends` array to keep in sync on
+ * two different user documents (which Firestore rules can't safely allow a
+ * client to write to both sides of anyway without a backend function).
+ */
+export interface FriendRequest {
+  id: string
+  fromUid: string
+  fromName: string
+  toUid: string
+  toName: string
+  status: FriendRequestStatus
+  createdAt: number
+  respondedAt?: number
+}
+
+export type LeaderboardCategory = 'mastery' | 'xp' | 'concepts'
+
+export interface LeaderboardEntry {
+  uid: string
+  displayName: string
+  value: number
+}
+
+export interface TeamLeaderboardEntry {
+  teamId: string
+  name: string
+  classroomId: string
+  value: number
+  memberCount: number
 }

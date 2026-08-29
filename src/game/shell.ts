@@ -5,8 +5,8 @@ import { sfx, setSoundEnabled, isSoundEnabled } from './sound'
 import type { Screen } from '../appState'
 import { session } from '../accounts/Session'
 import { getActiveTeam } from '../accounts/WorkshopContext'
-import { shipTeamState } from '../accounts/TeamService'
-import { buildSnapshot } from '../persistence/SaveManager'
+import { getTeam, shipTeamState } from '../accounts/TeamService'
+import { buildSnapshot, applySnapshot } from '../persistence/SaveManager'
 
 export interface NavItem {
   group?: string
@@ -142,10 +142,33 @@ export function updateTeamPanel() {
   panel.hidden = false
   panel.innerHTML = `
     <div class="team-panel-label">Team workshop</div>
+    <button class="ghost-button small" id="refreshTeamButton" style="width:100%">\u21bb Refresh from teammates</button>
     <textarea id="shipMessage" placeholder="What did you change?" rows="2"></textarea>
     <button class="primary-button small" id="shipButton" style="width:100%">Save &amp; ship to team</button>
     <div class="team-panel-status" id="shipStatus"></div>
   `
+
+  panel.querySelector<HTMLButtonElement>('#refreshTeamButton')!.addEventListener('click', async () => {
+    const statusEl = panel.querySelector<HTMLElement>('#shipStatus')!
+    const btn = panel.querySelector<HTMLButtonElement>('#refreshTeamButton')!
+    btn.disabled = true
+    btn.textContent = 'Pulling\u2026'
+    try {
+      const team = await getTeam(teamId)
+      if (team?.sharedState && Object.keys(team.sharedState).length) {
+        applySnapshot(team.sharedState as any)
+        statusEl.textContent = `Pulled the latest \u2014 last saved by ${team.lastSavedBy ?? 'a teammate'}. Reopen the screen you were on to see it reflected.`
+      } else {
+        statusEl.textContent = 'Nothing shipped by the team yet.'
+      }
+    } catch (err) {
+      console.error('SunRoot: team refresh failed', err)
+      statusEl.textContent = 'Refresh failed \u2014 check your connection.'
+    } finally {
+      btn.disabled = false
+      btn.textContent = '\u21bb Refresh from teammates'
+    }
+  })
 
   panel.querySelector<HTMLButtonElement>('#shipButton')!.addEventListener('click', async () => {
     const profile = session.profile

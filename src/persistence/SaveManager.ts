@@ -19,6 +19,7 @@
 
 import { farm } from '../simulation/FarmState'
 import { graph } from '../hardware/CircuitGraph'
+import { tray } from '../hardware/PartsTray'
 import { learner, CONCEPTS, masteryOf, overallMastery, MASTERY_THRESHOLD } from '../learning/LearnerModel'
 import { score } from '../simulation/Scoreboard'
 import { progress } from '../game/progress'
@@ -34,6 +35,7 @@ export interface SaveBlob {
   savedAt: number
   farm: unknown
   graph: { placed: unknown[]; wires: unknown[]; lastCheckedAt: number }
+  tray: unknown
   learner: unknown
   score: unknown
   progress: unknown
@@ -58,6 +60,7 @@ export function buildSnapshot(): SaveBlob {
       wires: JSON.parse(JSON.stringify(graph.wires)),
       lastCheckedAt: graph.lastCheckedAt,
     },
+    tray: JSON.parse(JSON.stringify(tray)),
     learner: JSON.parse(JSON.stringify(learner)),
     score: JSON.parse(JSON.stringify(score)),
     progress: JSON.parse(JSON.stringify(progress)),
@@ -81,6 +84,8 @@ export function applySnapshot(blob: SaveBlob | null | undefined): boolean {
     graph.wires.length = 0
     graph.wires.push(...(blob.graph.wires as typeof graph.wires))
     graph.lastCheckedAt = blob.graph.lastCheckedAt
+
+    if (blob.tray) Object.assign(tray, blob.tray as object)
 
     Object.assign(learner, blob.learner as object)
     Object.assign(score, blob.score as object)

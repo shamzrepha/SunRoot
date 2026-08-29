@@ -3568,3 +3568,21 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
   resize: vertical;
 }
 .team-panel-status { font-size: 11px; color: #8f9bad; line-height: 1.4; }
+
+/* ---------- Leaderboard + team budget ---------- */
+.leaderboard-list { list-style: none; margin: 0; padding: 0; counter-reset: none; }
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #232d24;
+}
+.leaderboard-row:last-child { border-bottom: none; }
+.leaderboard-row.is-me { background: rgba(79,214,122,0.08); border-radius: 8px; padding-left: 8px; }
+.lb-rank { width: 24px; text-align: center; font-weight: 700; color: #8f9bad; font-size: 13px; }
+.lb-name { flex: 1; font-size: 14px; }
+.lb-value { font-weight: 700; color: #4fd67a; font-variant-numeric: tabular-nums; }
+
+.team-budget-line { margin-bottom: 8px; }
+.team-budget-line strong { color: #4fd67a; }

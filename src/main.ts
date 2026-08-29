@@ -31,6 +31,7 @@ import { renderClasses } from './screens/classes'
 import { renderFindClass } from './screens/findClass'
 import { renderAdmin } from './screens/admin'
 import { renderProfile } from './screens/profile'
+import { renderLeaderboard } from './screens/leaderboard'
 import { renderCompleteProfile } from './screens/completeProfile'
 
 const root = document.querySelector<HTMLDivElement>('#app')!
@@ -54,6 +55,7 @@ function navItems(screen: Screen): NavItem[] {
 
   items.push({ id: 'dashboard' as Screen, label: 'Dashboard', icon: icon('class'), group: 'Account' })
   items.push({ id: 'classes' as Screen, label: 'My Classes', icon: icon('class'), group: 'Account' })
+  items.push({ id: 'leaderboard' as Screen, label: 'Leaderboard', icon: icon('rewards'), group: 'Account' })
   if (role !== 'teacher') {
     items.push({ id: 'findClass' as Screen, label: 'Find a Class', icon: icon('class'), group: 'Account' })
   }
@@ -223,6 +225,8 @@ export function goTo(screen: Screen) {
       renderAdmin(host)
     } else if (screen === 'profile') {
       renderProfile(host)
+    } else if (screen === 'leaderboard') {
+      renderLeaderboard(host)
     } else if (screen === 'learning') {
       renderLearning(host)
     } else if (screen === 'teacher') {

@@ -11,7 +11,7 @@ import {
   fetchUsersByIds,
   submitClassSuggestion,
 } from '../accounts/ClassroomService'
-import { createTeam, joinTeam, listTeamsForClassroom, setMyTeamRole } from '../accounts/TeamService'
+import { createTeam, joinTeam, listTeamsForClassroom, setMyTeamRole, teamBudgetRemaining } from '../accounts/TeamService'
 import { fetchClassroomProgress, isRecentlyActive } from '../accounts/ProgressService'
 import { generateTeachingRecommendations, generateStudentRecommendation } from '../ai/TeachingInsights'
 import { CONCEPT_BY_ID, MASTERY_THRESHOLD } from '../learning/LearnerModel'
@@ -436,6 +436,9 @@ function paintDetail(
                       ${
                         canSeeDetail
                           ? `
+                            <div class="team-budget-line">
+                              <span class="empty-note">Team budget: <strong>${teamBudgetRemaining(t)}</strong> / ${t.budget} credits remaining</span>
+                            </div>
                             <div class="team-members">
                               ${t.memberUids
                                 .map((uid) => {
@@ -456,6 +459,23 @@ function paintDetail(
                                     <button class="primary-button small enter-team-btn" data-team="${t.id}">Enter Team Workshop \u2192</button>
                                   </div>`
                                 : `<button class="ghost-button small join-team-btn" data-team="${t.id}" style="margin-top:8px">Join</button>`
+                            }
+                            ${
+                              t.purchaseLog?.length
+                                ? `<div class="commit-log">
+                                    <div class="sub-heading">Purchase history</div>
+                                    ${t.purchaseLog
+                                      .slice(0, 6)
+                                      .map(
+                                        (p) => `<div class="commit-row">
+                                          <span class="commit-author">${escapeHtml(p.displayName)}</span>
+                                          <span class="commit-message">bought ${p.quantityAdded > 1 ? `${p.quantityAdded}\u00d7 ` : ''}${escapeHtml(p.partName)} (${p.cost} credits)</span>
+                                          <span class="commit-time">${relativeTime(p.timestamp)}</span>
+                                        </div>`,
+                                      )
+                                      .join('')}
+                                  </div>`
+                                : ''
                             }
                             ${
                               t.commits?.length
