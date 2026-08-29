@@ -64,12 +64,14 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
     }
 
-    match /progressSnapshots/{uid} {
+    match /progressSnapshots/{snapshotId} {
       // Same low bar as `users`: any signed-in person can read it (teachers
       // need to see any student's summary without a per-classroom check in
-      // rules). Only the owning student can ever write their own.
+      // rules). Doc id is `{classroomId}_{uid}`, not a bare uid, so the
+      // write check matches on the document's own `uid` field instead of
+      // the path segment — only the student themselves can ever write it.
       allow read: if isSignedIn();
-      allow write: if isSelf(uid);
+      allow write: if isSignedIn() && request.resource.data.uid == request.auth.uid;
     }
   }
 }

@@ -3467,3 +3467,22 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
 .student-detail { margin-top: 8px; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 8px; }
 .student-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .details-toggle-btn { margin-left: 6px; }
+
+/* ---------- Per-student full report + presence ---------- */
+.presence-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5c6d63;
+  margin-right: 4px;
+}
+.presence-dot.presence-online { background: #4fd67a; box-shadow: 0 0 0 2px rgba(79,214,122,0.25); }
+
+.student-report { padding-top: 4px; }
+.concept-detail-row { padding: 10px 0; border-bottom: 1px solid #232d24; }
+.concept-detail-row:last-child { border-bottom: none; }
+.concept-detail-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.concept-detail-row.is-stuck .cb-name { color: #e8836b; }
+.evidence-log { margin-top: 6px; }
+.evidence-line { font-size: 11px; color: #6b7a70; font-family: 'IBM Plex Mono', monospace; }

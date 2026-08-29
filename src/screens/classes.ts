@@ -12,19 +12,21 @@ import {
   submitClassSuggestion,
 } from '../accounts/ClassroomService'
 import { createTeam, joinTeam, listTeamsForClassroom } from '../accounts/TeamService'
-import { fetchProgressSnapshots } from '../accounts/ProgressService'
-import { generateTeachingRecommendations } from '../ai/TeachingInsights'
+import { fetchClassroomProgress, isRecentlyActive } from '../accounts/ProgressService'
+import { generateTeachingRecommendations, generateStudentRecommendation } from '../ai/TeachingInsights'
 import { CONCEPT_BY_ID, MASTERY_THRESHOLD } from '../learning/LearnerModel'
 import { CLASS_TOPICS } from '../accounts/types'
 import type { Classroom, ClassroomInvite, ProgressSnapshot, Team, UserProfile } from '../accounts/types'
 
-export function renderClasses(root: HTMLElement, nav: { toWorkshop: () => void }) {
+type ClassNav = { toWorkshop: (classroomId: string) => void }
+
+export function renderClasses(root: HTMLElement, nav: ClassNav) {
   const profile = session.profile
   if (!profile) return
   renderList(root, profile, nav)
 }
 
-async function renderList(root: HTMLElement, profile: UserProfile, nav: { toWorkshop: () => void }) {
+async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav) {
   root.innerHTML = `<div class="screen"><p class="empty-note">Loading classes\u2026</p></div>`
 
   const [classrooms, invites] = await Promise.all([
@@ -216,7 +218,7 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: { toWork
   paint()
 }
 
-async function renderDetail(root: HTMLElement, profile: UserProfile, classroomId: string, nav: { toWorkshop: () => void }) {
+async function renderDetail(root: HTMLElement, profile: UserProfile, classroomId: string, nav: ClassNav) {
   root.innerHTML = `<div class="screen"><p class="empty-note">Loading\u2026</p></div>`
 
   const classrooms = await listClassroomsForUser(profile)
@@ -232,7 +234,9 @@ async function renderDetail(root: HTMLElement, profile: UserProfile, classroomId
   ])
 
   const isOwner = profile.role === 'teacher' && classroom.teacherId === profile.uid
-  const progressByUid = isOwner ? await fetchProgressSnapshots(classroom.studentIds) : {}
+  // Scoped to THIS classroom — the same student in a different class of
+  // yours (or someone else's) gets a completely separate snapshot.
+  const progressByUid = isOwner ? await fetchClassroomProgress(classroom.id, classroom.studentIds) : {}
 
   paintDetail(root, profile, classroom, roster, teams, isOwner, nav, progressByUid)
 }
@@ -293,7 +297,7 @@ function paintDetail(
   roster: UserProfile[],
   teams: Team[],
   isOwner: boolean,
-  nav: { toWorkshop: () => void },
+  nav: ClassNav,
   progressByUid: Record<string, ProgressSnapshot>,
 ) {
   const analytics = isOwner ? computeClassAnalytics(roster, progressByUid) : null
@@ -384,9 +388,12 @@ function paintDetail(
                         ${
                           isOwner
                             ? p
-                              ? `<span class="roster-progress">${p.rank} \u00b7 ${p.xp} XP \u00b7 ${p.conceptsMastered}/${p.totalConcepts} concepts \u00b7 ${Math.round(p.overallMastery * 100)}% mastery
-                                  <button class="link-button details-toggle-btn" data-uid="${s.uid}">Details</button></span>
-                                <div class="student-detail" id="detail-${s.uid}" hidden>${studentDetailHtml(p)}</div>`
+                              ? `<span class="roster-progress">
+                                  <span class="presence-dot ${isRecentlyActive(p.updatedAt) ? 'presence-online' : ''}"></span>
+                                  ${isRecentlyActive(p.updatedAt) ? 'Online now' : `Active ${relativeTime(p.updatedAt)}`} \u00b7
+                                  ${p.rank} \u00b7 ${p.xp} XP \u00b7 ${p.conceptsMastered}/${p.totalConcepts} concepts \u00b7 ${Math.round(p.overallMastery * 100)}% mastery
+                                  <button class="link-button details-toggle-btn" data-uid="${s.uid}">Full report</button></span>
+                                <div class="student-detail" id="detail-${s.uid}" hidden>${studentDetailHtml(s, p)}</div>`
                               : `<span class="roster-progress empty-note">No activity yet</span>`
                             : ''
                         }
@@ -449,6 +456,43 @@ function paintDetail(
     })
   })
 
+  root.querySelectorAll<HTMLButtonElement>('.student-ai-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const uid = btn.dataset.uid!
+      const student = roster.find((s) => s.uid === uid)
+      const p = progressByUid[uid]
+      const resultEl = root.querySelector<HTMLElement>(`#studentAIResult-${uid}`)!
+      if (!student || !p) return
+
+      btn.disabled = true
+      btn.textContent = 'Thinking\u2026'
+      resultEl.innerHTML = ''
+
+      const engaged = Object.entries(p.conceptMastery).filter(([, c]) => c.engaged)
+      const weakest = [...engaged].sort((a, b) => a[1].mastery - b[1].mastery).slice(0, 4)
+      const stuckOn = engaged.filter(([, c]) => c.correct + c.incorrect > 0 && c.incorrect / (c.correct + c.incorrect) >= 0.5 && c.incorrect >= 2)
+
+      const summary = [
+        `Student: ${student.displayName}. Class: ${classroom.name} (${classroom.topic}). Rank: ${p.rank}, ${p.xp} XP, ${p.conceptsMastered}/${p.totalConcepts} concepts mastered.`,
+        weakest.length
+          ? `Weakest concepts: ${weakest.map(([id, c]) => `${CONCEPT_BY_ID.get(id as any)?.label ?? id} (${Math.round(c.mastery * 100)}%)`).join(', ')}.`
+          : 'No concept activity recorded yet.',
+        stuckOn.length
+          ? `Concepts where they keep getting it wrong: ${stuckOn.map(([id]) => CONCEPT_BY_ID.get(id as any)?.label ?? id).join(', ')}.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+
+      const res = await generateStudentRecommendation(summary)
+      btn.disabled = false
+      btn.textContent = `Regenerate recommendation for ${student.displayName.split(' ')[0]}`
+      resultEl.innerHTML = res.text
+        ? `<div class="ai-insight-box">${escapeHtml(res.text).replace(/\n/g, '<br>')}</div>`
+        : `<p class="empty-note">Couldn\u2019t generate a recommendation: ${escapeHtml(res.error ?? 'unknown error')}</p>`
+    })
+  })
+
   root.querySelector<HTMLButtonElement>('#aiInsightsBtn')?.addEventListener('click', async (e) => {
     if (!analytics) return
     const btn = e.currentTarget as HTMLButtonElement
@@ -478,7 +522,7 @@ function paintDetail(
       ? `<div class="ai-insight-box">${escapeHtml(res.text).replace(/\n/g, '<br>')}</div>`
       : `<p class="empty-note">Couldn\u2019t generate recommendations: ${escapeHtml(res.error ?? 'unknown error')}</p>`
   })
-  root.querySelector('#openWorkshopBtn')?.addEventListener('click', () => nav.toWorkshop())
+  root.querySelector('#openWorkshopBtn')?.addEventListener('click', () => nav.toWorkshop(classroom.id))
 
   root.querySelector<HTMLFormElement>('#inviteForm')?.addEventListener('submit', async (e) => {
     e.preventDefault()
@@ -536,25 +580,57 @@ function paintDetail(
   })
 }
 
-function studentDetailHtml(p: ProgressSnapshot): string {
+function studentDetailHtml(student: UserProfile, p: ProgressSnapshot): string {
   const engaged = Object.entries(p.conceptMastery).filter(([, c]) => c.engaged)
-  if (!engaged.length) return `<p class="empty-note">No concept activity yet.</p>`
-  const sorted = [...engaged].sort((a, b) => b[1].mastery - a[1].mastery)
-  const strengths = sorted.filter(([, c]) => c.mastery >= MASTERY_THRESHOLD).slice(0, 3)
-  const gaps = [...sorted].reverse().filter(([, c]) => c.mastery < MASTERY_THRESHOLD).slice(0, 3)
   const label = (id: string) => CONCEPT_BY_ID.get(id as any)?.label ?? id
+
+  const conceptRows = [...engaged]
+    .sort((a, b) => a[1].mastery - b[1].mastery) // weakest first — what a teacher needs to see first
+    .map(([id, c]) => {
+      const struggleRatio = c.correct + c.incorrect > 0 ? c.incorrect / (c.correct + c.incorrect) : 0
+      const stuck = struggleRatio >= 0.5 && c.incorrect >= 2
+      return `
+        <div class="concept-detail-row ${stuck ? 'is-stuck' : ''}">
+          <div class="concept-detail-head">
+            <span class="cb-name">${escapeHtml(label(id))}</span>
+            <span class="cb-pct">${Math.round(c.mastery * 100)}%</span>
+          </div>
+          <div class="cb-track"><div class="cb-fill ${c.mastery >= MASTERY_THRESHOLD ? 'high' : 'low'}" style="width:${c.mastery * 100}%"></div></div>
+          <div class="empty-note">
+            ${c.correct} correct \u00b7 ${c.incorrect} incorrect \u00b7 last active ${relativeTime(c.lastSeen)}
+            ${stuck ? ' \u00b7 <span class="at-risk">keeps getting stuck here</span>' : ''}
+          </div>
+          ${c.evidence.length ? `<div class="evidence-log">${c.evidence.map((e) => `<div class="evidence-line">${escapeHtml(e)}</div>`).join('')}</div>` : ''}
+        </div>
+      `
+    })
+    .join('')
+
   return `
-    <div class="student-detail-grid">
-      <div>
-        <div class="teach-tag">STRONG</div>
-        ${strengths.length ? strengths.map(([id, c]) => `<p class="teach-body">${escapeHtml(label(id))} \u2014 ${Math.round(c.mastery * 100)}%</p>`).join('') : `<p class="empty-note">None yet</p>`}
+    <div class="student-report">
+      <div class="dash-grid">
+        <div class="teach-card"><div class="teach-tag">RANK</div><div class="class-figure" style="font-size:20px">${escapeHtml(p.rank)}</div></div>
+        <div class="teach-card"><div class="teach-tag">XP</div><div class="class-figure">${p.xp}</div></div>
+        <div class="teach-card"><div class="teach-tag">BADGES</div><div class="class-figure">${p.badgesEarned}/${p.totalBadges}</div></div>
+        <div class="teach-card"><div class="teach-tag">DAYS SURVIVED</div><div class="class-figure">${p.daysSurvived}</div></div>
       </div>
-      <div>
-        <div class="teach-tag">NEEDS WORK</div>
-        ${gaps.length ? gaps.map(([id, c]) => `<p class="teach-body">${escapeHtml(label(id))} \u2014 ${Math.round(c.mastery * 100)}%</p>`).join('') : `<p class="empty-note">None yet</p>`}
-      </div>
+      ${engaged.length ? conceptRows : `<p class="empty-note">No concept activity yet.</p>`}
+      <button class="ghost-button student-ai-btn" data-uid="${student.uid}" style="margin-top:10px">Generate AI recommendation for ${escapeHtml(student.displayName.split(' ')[0])}</button>
+      <div id="studentAIResult-${student.uid}"></div>
     </div>
   `
+}
+
+/** Rough, human-friendly "X ago" — doesn't need to be exact, just legible at a glance. */
+function relativeTime(ts: number): string {
+  const diffMs = Date.now() - ts
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 function escapeHtml(s: string): string {

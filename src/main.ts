@@ -22,6 +22,7 @@ import { hide as hideAssistant, show as assistantShow } from './ai/Assistant'
 import { restoreAll, startAutosave } from './persistence/SaveManager'
 import { onAuthChange, logOut } from './accounts/AuthService'
 import { session, refreshProfile } from './accounts/Session'
+import { setActiveClassroom, getActiveClassroom } from './accounts/WorkshopContext'
 import { ensureDemoClassroomExists } from './accounts/ClassroomService'
 import { renderLogin } from './screens/login'
 import { renderDashboard } from './screens/dashboard'
@@ -108,6 +109,13 @@ export function goTo(screen: Screen) {
   if (screen !== 'farm') stopFarmLoop()
   appState.screen = screen
 
+  // Leaving the workshop entirely (not just moving between its own screens)
+  // clears which classroom "launched" it, so a stray sync after navigating
+  // away never gets mis-tagged to a class the student isn't actively in.
+  if (!WORKSHOP_SCREENS.includes(screen) && getActiveClassroom()) {
+    setActiveClassroom(null)
+  }
+
   if (screen === 'login') {
     shellMounted = false
     cancelAnimationFrame(hudTimer)
@@ -180,7 +188,7 @@ export function goTo(screen: Screen) {
         toAdmin: () => goTo('admin'),
       })
     } else if (screen === 'classes') {
-      renderClasses(host, { toWorkshop: () => goTo('farm') })
+      renderClasses(host, { toWorkshop: (classroomId) => { setActiveClassroom(classroomId); goTo('farm') } })
     } else if (screen === 'findClass') {
       renderFindClass(host)
     } else if (screen === 'admin') {

@@ -22,6 +22,7 @@ import { progress } from '../game/progress'
 import { getSavedWorkspace, setSavedWorkspace } from '../screens/codingLab'
 import { session } from '../accounts/Session'
 import { pushProgressSnapshot } from '../accounts/ProgressService'
+import { getActiveClassroom } from '../accounts/WorkshopContext'
 
 const SAVE_KEY = 'sunroot:save:v1'
 const CURRENT_VERSION = 1
@@ -125,21 +126,22 @@ let intervalHandle = 0
 let progressSyncHandle = 0
 
 /**
- * Pushes a summary (XP, rank, concepts mastered, per-concept breakdown) to
- * Firestore so a teacher can actually see it — not the full save, which
- * stays local-only. Silently skipped if nobody is signed in.
+ * Pushes a summary (XP, rank, concepts mastered, full per-concept detail) to
+ * Firestore so a teacher can actually see it — scoped to whichever classroom
+ * launched this workshop session (see WorkshopContext.ts). Skipped entirely
+ * if nobody is signed in, or if the student got into the workshop some way
+ * that isn't through a classroom (shouldn't currently be possible, but this
+ * is the safe default rather than writing to a meaningless classroom id).
  */
 async function syncProgressSnapshot() {
   const profile = session.profile
-  if (!profile) return
+  const classroomId = getActiveClassroom()
+  if (!profile || !classroomId) return
   try {
-    const conceptMastery: Record<string, { mastery: number; engaged: boolean }> = {}
-    for (const c of CONCEPTS) {
-      const st = learner.concepts[c.id]
-      conceptMastery[c.id] = { mastery: masteryOf(c.id), engaged: st.correct + st.incorrect > 0 }
-    }
+    const conceptMastery: ReturnType<typeof buildConceptMastery> = buildConceptMastery()
     await pushProgressSnapshot({
       uid: profile.uid,
+      classroomId,
       displayName: profile.displayName,
       xp: progress.xp,
       rank: progress.rank,
@@ -147,11 +149,32 @@ async function syncProgressSnapshot() {
       totalConcepts: CONCEPTS.length,
       overallMastery: overallMastery(),
       daysSurvived: progress.stats.daysSurvived,
+      badgesEarned: progress.badges.filter((b) => b.earned).length,
+      totalBadges: progress.badges.length,
       conceptMastery,
     })
   } catch (err) {
     console.error('SunRoot: progress sync failed', err)
   }
+}
+
+function buildConceptMastery() {
+  const out: Record<
+    string,
+    { mastery: number; engaged: boolean; correct: number; incorrect: number; lastSeen: number; evidence: string[] }
+  > = {}
+  for (const c of CONCEPTS) {
+    const st = learner.concepts[c.id]
+    out[c.id] = {
+      mastery: masteryOf(c.id),
+      engaged: st.correct + st.incorrect > 0,
+      correct: st.correct,
+      incorrect: st.incorrect,
+      lastSeen: st.lastSeen,
+      evidence: st.evidence.slice(0, 6),
+    }
+  }
+  return out
 }
 
 /** Call once at boot, after restoreAll(). Autosaves periodically and on tab close/hide. */

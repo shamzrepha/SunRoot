@@ -89,12 +89,16 @@ export const CLASS_TOPICS = [
 
 /**
  * A lightweight, periodically-synced summary of a student's simulation
- * progress — NOT the full farm/circuit save, which stays local-only. Includes
- * a per-concept breakdown so a teacher's view can show real strengths/gaps,
- * not just one aggregate number.
+ * progress — NOT the full farm/circuit save, which stays local-only.
+ *
+ * Scoped to a single classroom (see WorkshopContext.ts) — a student in two
+ * different classes gets two separate snapshots, keyed `{classroomId}_{uid}`
+ * in Firestore, so a teacher's view of "this class" never bleeds in a
+ * student's activity from a different class they happen to also be in.
  */
 export interface ProgressSnapshot {
   uid: string
+  classroomId: string
   displayName: string
   xp: number
   rank: string
@@ -102,7 +106,20 @@ export interface ProgressSnapshot {
   totalConcepts: number
   overallMastery: number // 0–1, engaged concepts only
   daysSurvived: number
-  /** Per-concept mastery (0–1) and whether the student has actually attempted it. */
-  conceptMastery: Record<string, { mastery: number; engaged: boolean }>
+  badgesEarned: number
+  totalBadges: number
+  /** Per-concept detail — enough for a teacher to see not just mastery but where a student keeps getting stuck. */
+  conceptMastery: Record<
+    string,
+    {
+      mastery: number
+      engaged: boolean
+      correct: number
+      incorrect: number
+      lastSeen: number
+      /** Most recent few attempts, plain-language, e.g. "✓ wired the pull-down resistor correctly". */
+      evidence: string[]
+    }
+  >
   updatedAt: number
 }
