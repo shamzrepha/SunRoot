@@ -33,7 +33,7 @@ import { answerLocally } from './LocalAnswerer'
  * The key is never here. It lives in the Netlify environment as GROQ_API_KEY
  * and is read by the function server-side, so nothing secret reaches the browser.
  */
-export const PROXY_PATH = '/.netlify/functions/ask'
+export const PROXY_PATH = '/api/ask'
 
 const STORE_KEY = 'sunroot.ai.config'
 
