@@ -11,14 +11,14 @@ import {
   fetchUsersByIds,
   submitClassSuggestion,
 } from '../accounts/ClassroomService'
-import { createTeam, joinTeam, listTeamsForClassroom } from '../accounts/TeamService'
+import { createTeam, joinTeam, listTeamsForClassroom, setMyTeamRole } from '../accounts/TeamService'
 import { fetchClassroomProgress, isRecentlyActive } from '../accounts/ProgressService'
 import { generateTeachingRecommendations, generateStudentRecommendation } from '../ai/TeachingInsights'
 import { CONCEPT_BY_ID, MASTERY_THRESHOLD } from '../learning/LearnerModel'
-import { CLASS_TOPICS } from '../accounts/types'
-import type { Classroom, ClassroomInvite, ProgressSnapshot, Team, UserProfile } from '../accounts/types'
+import { CLASS_TOPICS, TEAM_ROLES } from '../accounts/types'
+import type { Classroom, ClassroomInvite, ProgressSnapshot, Team, TeamRole, UserProfile } from '../accounts/types'
 
-type ClassNav = { toWorkshop: (classroomId: string) => void }
+type ClassNav = { toWorkshop: (classroomId: string) => void; toTeamWorkshop: (classroomId: string, teamId: string) => void }
 
 export function renderClasses(root: HTMLElement, nav: ClassNav) {
   const profile = session.profile
@@ -414,23 +414,73 @@ function paintDetail(
 
       <div class="class-panel">
         <h2>Teams</h2>
-        <p class="empty-note">Team up with classmates to work on a project together.</p>
+        <p class="empty-note">Team up with classmates to work on a project together \u2014 save your work with a message so the team can see what changed, like a commit.</p>
         <form id="teamForm" class="inline-form">
           <input type="text" id="teamName" placeholder="New team name" />
           <button type="submit" class="primary-button">Create team</button>
         </form>
         ${
           teams.length
-            ? `<ul class="roster-list" id="teamList">
-                ${teams
-                  .map(
-                    (t) => `<li data-team="${t.id}">
-                      <span>${escapeHtml(t.name)} \u00b7 ${t.memberUids.length} member${t.memberUids.length === 1 ? '' : 's'}</span>
-                      ${t.memberUids.includes(profile.uid) ? '<span class="tag-badge">You\u2019re in</span>' : '<button class="ghost-button small join-team-btn">Join</button>'}
-                    </li>`,
-                  )
-                  .join('')}
-              </ul>`
+            ? teams
+                .map((t) => {
+                  const isMember = t.memberUids.includes(profile.uid)
+                  const canSeeDetail = isOwner || isMember
+                  const myRole = t.memberRoles?.[profile.uid]
+                  return `
+                    <div class="team-card" data-team="${t.id}">
+                      <div class="team-card-head">
+                        <span class="class-row-name">${escapeHtml(t.name)}</span>
+                        <span class="empty-note">${t.memberUids.length} member${t.memberUids.length === 1 ? '' : 's'}${t.lastSavedBy ? ` \u00b7 last saved by ${escapeHtml(t.lastSavedBy)} ${t.lastSavedAt ? relativeTime(t.lastSavedAt) : ''}` : ''}</span>
+                      </div>
+
+                      ${
+                        canSeeDetail
+                          ? `
+                            <div class="team-members">
+                              ${t.memberUids
+                                .map((uid) => {
+                                  const member = roster.find((r) => r.uid === uid)
+                                  const name = member?.displayName ?? (uid === profile.uid ? profile.displayName : uid)
+                                  const role = t.memberRoles?.[uid]
+                                  return `<span class="team-member-chip">${escapeHtml(name)}${role ? ` \u2014 ${escapeHtml(role)}` : ''}</span>`
+                                })
+                                .join('')}
+                            </div>
+                            ${
+                              isMember
+                                ? `<div class="inline-form" style="margin-top:8px">
+                                    <select class="role-select" data-team="${t.id}">
+                                      <option value="" ${!myRole ? 'selected' : ''} disabled>Pick your role</option>
+                                      ${TEAM_ROLES.map((r) => `<option value="${r}" ${myRole === r ? 'selected' : ''}>${r}</option>`).join('')}
+                                    </select>
+                                    <button class="primary-button small enter-team-btn" data-team="${t.id}">Enter Team Workshop \u2192</button>
+                                  </div>`
+                                : `<button class="ghost-button small join-team-btn" data-team="${t.id}" style="margin-top:8px">Join</button>`
+                            }
+                            ${
+                              t.commits?.length
+                                ? `<div class="commit-log">
+                                    <div class="sub-heading">Recent saves</div>
+                                    ${t.commits
+                                      .slice(0, 5)
+                                      .map(
+                                        (c) => `<div class="commit-row">
+                                          <span class="commit-author">${escapeHtml(c.displayName)}</span>
+                                          <span class="commit-message">${escapeHtml(c.message)}</span>
+                                          <span class="commit-time">${relativeTime(c.timestamp)}</span>
+                                        </div>`,
+                                      )
+                                      .join('')}
+                                  </div>`
+                                : `<p class="empty-note" style="margin-top:8px">No saves shipped yet.</p>`
+                            }
+                          `
+                          : `<button class="ghost-button small join-team-btn" data-team="${t.id}" style="margin-top:8px">Join</button>`
+                      }
+                    </div>
+                  `
+                })
+                .join('')
             : `<p class="empty-note">No teams yet \u2014 start one above.</p>`
         }
       </div>
@@ -572,11 +622,23 @@ function paintDetail(
     renderDetail(root, profile, classroom.id, nav)
   })
 
-  root.querySelectorAll<HTMLElement>('#teamList li').forEach((li) => {
-    li.querySelector('.join-team-btn')?.addEventListener('click', async () => {
-      await joinTeam(li.dataset.team!, profile.uid)
+  root.querySelectorAll<HTMLButtonElement>('.join-team-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await joinTeam(btn.dataset.team!, profile.uid)
       renderDetail(root, profile, classroom.id, nav)
     })
+  })
+
+  root.querySelectorAll<HTMLSelectElement>('.role-select').forEach((select) => {
+    select.addEventListener('change', async () => {
+      if (!select.value) return
+      await setMyTeamRole(select.dataset.team!, profile.uid, select.value as TeamRole)
+      renderDetail(root, profile, classroom.id, nav)
+    })
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('.enter-team-btn').forEach((btn) => {
+    btn.addEventListener('click', () => nav.toTeamWorkshop(classroom.id, btn.dataset.team!))
   })
 }
 

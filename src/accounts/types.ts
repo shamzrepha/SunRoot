@@ -55,12 +55,41 @@ export interface ClassroomInvite {
   createdAt: number
 }
 
+export const TEAM_ROLES = [
+  'Team Lead',
+  'Circuit Engineer',
+  'Software Engineer',
+  'Systems Tester',
+  'Contributor',
+] as const
+export type TeamRole = (typeof TEAM_ROLES)[number]
+
+/** One saved-and-shipped snapshot of a team's shared work — the "commit" in the GitHub-style flow. */
+export interface TeamCommit {
+  uid: string
+  displayName: string
+  message: string
+  timestamp: number
+}
+
 export interface Team {
   id: string
   classroomId: string
   name: string
   memberUids: string[]
+  /** Self-selected by each member; not everyone has to pick one. */
+  memberRoles: Record<string, TeamRole>
+  /**
+   * The team's actual shared farm/circuit/code state — what a member pulls
+   * when they enter the team workshop, and what gets overwritten wholesale
+   * on every "save & ship" (full-snapshot commits, not diffs — simple and
+   * predictable, not real git).
+   */
   sharedState: Record<string, unknown>
+  /** Most recent commits first, capped at 20 — a full history isn't kept forever. */
+  commits: TeamCommit[]
+  lastSavedBy?: string
+  lastSavedAt?: number
   createdAt: number
   updatedAt: number
 }

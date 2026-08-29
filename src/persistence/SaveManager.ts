@@ -5,13 +5,16 @@
 // coding blocks, the learner model, the scoreboard, XP/badges — lives as a
 // plain in-memory singleton (`export const farm = {...}`, etc). That's fine
 // for a running tab, but it means a refresh re-runs module init and throws
-// everything away. This file is the fix: it snapshots all of those singletons
-// into localStorage on a short interval and on tab close, and restores them
-// by mutating the same singleton objects in place *before* any screen renders.
+// everything away. This file fixes that: it snapshots all of those
+// singletons into localStorage on a short interval and on tab close, and
+// restores them by mutating the same singleton objects in place before any
+// screen renders.
 //
-// Local-first by design: it works with zero backend, offline, immediately.
-// If/when accounts ship, swap `writeLocal`/`readLocal` for calls that also
-// sync to Firestore keyed by uid — the shape of what's saved doesn't change.
+// Scoped per classroom (see WorkshopContext.ts): the save key includes which
+// classroom is active, so opening a different class's workshop starts that
+// class's own save, not the same blob every class shared before. Skipped
+// entirely when no classroom is active — there's nothing meaningful to save
+// outside a workshop session.
 // ---------------------------------------------------------------------------
 
 import { farm } from '../simulation/FarmState'
@@ -24,10 +27,9 @@ import { session } from '../accounts/Session'
 import { pushProgressSnapshot } from '../accounts/ProgressService'
 import { getActiveClassroom } from '../accounts/WorkshopContext'
 
-const SAVE_KEY = 'sunroot:save:v1'
 const CURRENT_VERSION = 1
 
-interface SaveBlob {
+export interface SaveBlob {
   version: number
   savedAt: number
   farm: unknown
@@ -38,7 +40,12 @@ interface SaveBlob {
   workspace: object | null
 }
 
-function snapshot(): SaveBlob {
+function saveKey(classroomId: string): string {
+  return `sunroot:save:v1:${classroomId}`
+}
+
+/** A full snapshot of every live singleton — also what gets shipped to a team on "save & ship". */
+export function buildSnapshot(): SaveBlob {
   // Deep-clone via JSON round-trip — every one of these objects is plain
   // data (numbers, strings, arrays, nested plain objects), so this is safe
   // and avoids accidentally sharing references with the live singletons.
@@ -58,44 +65,15 @@ function snapshot(): SaveBlob {
   }
 }
 
-/** Write the current state to localStorage. Safe to call often — it's cheap. */
-export function saveAll() {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot()))
-  } catch (err) {
-    // Quota exceeded or private-browsing restrictions — not fatal, just log it.
-    console.error('SunRoot: autosave failed', err)
-  }
-}
-
-export function hasSave(): boolean {
-  return localStorage.getItem(SAVE_KEY) !== null
-}
-
-export function lastSavedAt(): number | null {
-  const raw = localStorage.getItem(SAVE_KEY)
-  if (!raw) return null
-  try {
-    return (JSON.parse(raw) as SaveBlob).savedAt
-  } catch {
-    return null
-  }
-}
-
 /**
- * Mutates every live singleton in place to match the saved blob. Must run
- * before any screen renders, since screens read these objects directly.
- * Returns false (and leaves everything at its fresh-boot defaults) if there
- * is no save or it fails to parse — a corrupt save should never crash boot.
+ * Mutates every live singleton in place to match a snapshot — used both for
+ * localStorage restore and for pulling a team's shared state. Returns false
+ * (leaving everything untouched) if the blob is missing or the wrong shape,
+ * so a corrupt or foreign snapshot never half-applies.
  */
-export function restoreAll(): boolean {
-  const raw = localStorage.getItem(SAVE_KEY)
-  if (!raw) return false
-
+export function applySnapshot(blob: SaveBlob | null | undefined): boolean {
+  if (!blob || blob.version !== CURRENT_VERSION) return false
   try {
-    const blob = JSON.parse(raw) as SaveBlob
-    if (blob.version !== CURRENT_VERSION) return false // shape changed — start fresh rather than guess
-
     Object.assign(farm, blob.farm as object)
 
     graph.placed.length = 0
@@ -109,17 +87,56 @@ export function restoreAll(): boolean {
     Object.assign(progress, blob.progress as object)
 
     if (blob.workspace) setSavedWorkspace(blob.workspace)
-
     return true
+  } catch (err) {
+    console.error('SunRoot: applying snapshot failed', err)
+    return false
+  }
+}
+
+/** Write the current state to localStorage under the active classroom's key. No-ops with no active classroom. */
+export function saveAll() {
+  const classroomId = getActiveClassroom()
+  if (!classroomId) return
+  try {
+    localStorage.setItem(saveKey(classroomId), JSON.stringify(buildSnapshot()))
+  } catch (err) {
+    // Quota exceeded or private-browsing restrictions — not fatal, just log it.
+    console.error('SunRoot: autosave failed', err)
+  }
+}
+
+export function hasSaveFor(classroomId: string): boolean {
+  return localStorage.getItem(saveKey(classroomId)) !== null
+}
+
+export function lastSavedAtFor(classroomId: string): number | null {
+  const raw = localStorage.getItem(saveKey(classroomId))
+  if (!raw) return null
+  try {
+    return (JSON.parse(raw) as SaveBlob).savedAt
+  } catch {
+    return null
+  }
+}
+
+/** Restores whichever classroom is currently active (see WorkshopContext.ts). Call this once, right when entering that classroom's workshop — not on every screen change within it. */
+export function restoreForActiveClassroom(): boolean {
+  const classroomId = getActiveClassroom()
+  if (!classroomId) return false
+  const raw = localStorage.getItem(saveKey(classroomId))
+  if (!raw) return false
+  try {
+    return applySnapshot(JSON.parse(raw) as SaveBlob)
   } catch (err) {
     console.error('SunRoot: restore failed, starting fresh', err)
     return false
   }
 }
 
-/** Wipe the save — wire this to a "reset farm" button if you want one. */
-export function clearSave() {
-  localStorage.removeItem(SAVE_KEY)
+/** Wipe the save for one classroom — wire this to a "reset farm" button if you want one. */
+export function clearSaveFor(classroomId: string) {
+  localStorage.removeItem(saveKey(classroomId))
 }
 
 let intervalHandle = 0
@@ -128,10 +145,8 @@ let progressSyncHandle = 0
 /**
  * Pushes a summary (XP, rank, concepts mastered, full per-concept detail) to
  * Firestore so a teacher can actually see it — scoped to whichever classroom
- * launched this workshop session (see WorkshopContext.ts). Skipped entirely
- * if nobody is signed in, or if the student got into the workshop some way
- * that isn't through a classroom (shouldn't currently be possible, but this
- * is the safe default rather than writing to a meaningless classroom id).
+ * launched this workshop session. Skipped entirely if nobody is signed in,
+ * or if there's no active classroom.
  */
 async function syncProgressSnapshot() {
   const profile = session.profile
@@ -177,7 +192,7 @@ function buildConceptMastery() {
   return out
 }
 
-/** Call once at boot, after restoreAll(). Autosaves periodically and on tab close/hide. */
+/** Call once at boot. Autosaves periodically (per active classroom) and on tab close/hide. */
 export function startAutosave(intervalMs = 3000) {
   window.clearInterval(intervalHandle)
   intervalHandle = window.setInterval(saveAll, intervalMs)

@@ -3486,3 +3486,85 @@ body:not(.a11y-captions) .assistant-text { opacity: 0.35; }
 .concept-detail-row.is-stuck .cb-name { color: #e8836b; }
 .evidence-log { margin-top: 6px; }
 .evidence-line { font-size: 11px; color: #6b7a70; font-family: 'IBM Plex Mono', monospace; }
+
+/* ---------- Team collaboration: cards, roles, commit log, sidebar ship panel ---------- */
+
+.team-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid #232d24;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.team-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.team-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.team-member-chip {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(79,214,122,0.1);
+  border: 1px solid rgba(79,214,122,0.3);
+  color: #eaf9ee;
+}
+.role-select {
+  background: #101713;
+  border: 1px solid #3a4a3f;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #eaf9ee;
+  font-size: 13px;
+}
+
+.commit-log { margin-top: 10px; border-top: 1px solid #232d24; padding-top: 8px; }
+.commit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 4px 0;
+}
+.commit-author { font-weight: 700; color: #4fd67a; }
+.commit-message { color: #c9d6ce; flex: 1; min-width: 120px; }
+.commit-time { color: #6b7a70; font-size: 11px; }
+
+/* Sidebar "save & ship to team" panel */
+.team-panel {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(79,214,122,0.06);
+  border: 1px solid rgba(79,214,122,0.25);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.team-panel-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4fd67a;
+  font-weight: 700;
+}
+.team-panel textarea {
+  background: #101713;
+  border: 1px solid #3a4a3f;
+  border-radius: 8px;
+  padding: 8px;
+  color: #eaf9ee;
+  font-size: 12.5px;
+  font-family: inherit;
+  resize: vertical;
+}
+.team-panel-status { font-size: 11px; color: #8f9bad; line-height: 1.4; }

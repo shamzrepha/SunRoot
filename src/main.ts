@@ -12,17 +12,18 @@ import { mountAssistantDock } from './ai/AssistantDock'
 import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
 import { renderFarm, stopFarmLoop } from './screens/farm'
 import { renderTutor, renderReport, renderQuiz, renderRewards } from './screens/extras'
-import { mountShell, renderNav, renderHud, updateRankUi, transitionView } from './game/shell'
+import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, transitionView } from './game/shell'
 import type { NavItem } from './game/shell'
 import { farm } from './simulation/FarmState'
 
 import { progress } from './game/progress'
 import { icon } from './ui/icons'
 import { hide as hideAssistant, show as assistantShow } from './ai/Assistant'
-import { restoreAll, startAutosave } from './persistence/SaveManager'
+import { restoreForActiveClassroom, startAutosave, applySnapshot } from './persistence/SaveManager'
+import { getTeam } from './accounts/TeamService'
 import { onAuthChange, logOut } from './accounts/AuthService'
 import { session, refreshProfile } from './accounts/Session'
-import { setActiveClassroom, getActiveClassroom } from './accounts/WorkshopContext'
+import { setActiveClassroom, getActiveClassroom, setActiveTeam } from './accounts/WorkshopContext'
 import { ensureDemoClassroomExists } from './accounts/ClassroomService'
 import { renderLogin } from './screens/login'
 import { renderDashboard } from './screens/dashboard'
@@ -35,6 +36,7 @@ import { renderCompleteProfile } from './screens/completeProfile'
 const root = document.querySelector<HTMLDivElement>('#app')!
 let shellMounted = false
 let hudTimer = 0
+let postLoadingScreen: Screen = 'dashboard'
 
 const WORKSHOP_SCREENS: Screen[] = ['farm', 'shed', 'circuit', 'coding', 'learning', 'quiz', 'report', 'rewards', 'tutor']
 
@@ -128,9 +130,13 @@ export function goTo(screen: Screen) {
     cancelAnimationFrame(hudTimer)
     initAccessibility()
     mountAssistantDock()
-    // Dashboard, not the farm, is the landing page after login — the farm is
-    // still one click away via "Continue building" or the Farm nav item.
-    renderLoading(root, () => goTo('dashboard'))
+    // Normally the dashboard, not the farm — but if a refresh happened
+    // mid-workshop, the auth gate sets postLoadingScreen to 'farm' so a
+    // refresh actually resumes the session instead of bouncing back to the
+    // dashboard and making the student navigate back in by hand.
+    const dest = postLoadingScreen
+    postLoadingScreen = 'dashboard'
+    renderLoading(root, () => goTo(dest))
     return
   }
   if (screen === 'intro') {
@@ -144,6 +150,7 @@ export function goTo(screen: Screen) {
   hideAssistant()
   renderNav(navItems(screen), screen)
   updateRankUi()
+  updateTeamPanel()
 
   transitionView((host) => {
     if (screen === 'shed') {
@@ -189,7 +196,27 @@ export function goTo(screen: Screen) {
         toAdmin: () => goTo('admin'),
       })
     } else if (screen === 'classes') {
-      renderClasses(host, { toWorkshop: (classroomId) => { setActiveClassroom(classroomId); goTo('farm') } })
+      renderClasses(host, {
+        toWorkshop: (classroomId) => {
+          setActiveClassroom(classroomId)
+          setActiveTeam(null) // solo workshop unless a team entry point sets this itself
+          restoreForActiveClassroom()
+          goTo('farm')
+        },
+        toTeamWorkshop: async (classroomId, teamId) => {
+          setActiveClassroom(classroomId)
+          setActiveTeam(teamId)
+          const team = await getTeam(teamId)
+          // Pull the team's last shipped state if there is one; otherwise
+          // fall back to whatever this student already has saved for this
+          // classroom (e.g. the very first team member to open it).
+          const pulled = team?.sharedState && Object.keys(team.sharedState).length
+            ? applySnapshot(team.sharedState as any)
+            : false
+          if (!pulled) restoreForActiveClassroom()
+          goTo('farm')
+        },
+      })
     } else if (screen === 'findClass') {
       renderFindClass(host)
     } else if (screen === 'admin') {
@@ -262,12 +289,16 @@ onAuthChange(async (user) => {
 
   ensureDemoClassroomExists().catch((err) => console.error('SunRoot: seed check failed', err))
 
-  // Restore everything (farm, circuit, coding blocks, learner model,
-  // scoreboard, XP/badges) before the very first render, so a refresh
-  // mid-session no longer throws work away.
-  const resumed = restoreAll()
+  // If a classroom workshop was active when the page was last open (see
+  // WorkshopContext.ts — it persists this), resume straight back into it
+  // instead of bouncing to the dashboard and making them navigate back in.
+  const resumingClassroom = getActiveClassroom()
+  if (resumingClassroom) {
+    const resumed = restoreForActiveClassroom()
+    if (resumed) postLoadingScreen = 'farm'
+    else setActiveClassroom(null) // stale reference with nothing to restore — don't fake a resume
+  }
   startAutosave()
-  if (resumed) console.info('SunRoot: restored a previous session')
 
   goTo('loading')
 })

@@ -4,6 +4,9 @@ import { icon } from '../ui/icons'
 import { sfx, setSoundEnabled, isSoundEnabled } from './sound'
 import type { Screen } from '../appState'
 import { session } from '../accounts/Session'
+import { getActiveTeam } from '../accounts/WorkshopContext'
+import { shipTeamState } from '../accounts/TeamService'
+import { buildSnapshot } from '../persistence/SaveManager'
 
 export interface NavItem {
   group?: string
@@ -54,6 +57,8 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
           <button class="sound-toggle" id="soundToggle">Sound: On</button>
           <button class="sound-toggle" id="voiceToggle">Voice: Off</button>
         </div>
+
+        <div class="team-panel" id="teamPanel" hidden></div>
 
         <button class="profile-chip" id="profileChip">
           <span class="profile-avatar" id="profileAvatar">?</span>
@@ -115,6 +120,55 @@ export function updateProfileChip() {
   avatar.textContent = ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
   nameEl.textContent = profile.displayName
   roleEl.textContent = profile.role.charAt(0).toUpperCase() + profile.role.slice(1)
+}
+
+/**
+ * Shows/hides and wires the "save & ship to team" control in the sidebar.
+ * Call this on every navigation (not just at shell mount, which only
+ * happens once per session) since which team is active changes as a
+ * student moves in and out of a team workshop.
+ */
+export function updateTeamPanel() {
+  const panel = document.querySelector<HTMLElement>('#teamPanel')
+  if (!panel) return
+  const teamId = getActiveTeam()
+
+  if (!teamId) {
+    panel.hidden = true
+    panel.innerHTML = ''
+    return
+  }
+
+  panel.hidden = false
+  panel.innerHTML = `
+    <div class="team-panel-label">Team workshop</div>
+    <textarea id="shipMessage" placeholder="What did you change?" rows="2"></textarea>
+    <button class="primary-button small" id="shipButton" style="width:100%">Save &amp; ship to team</button>
+    <div class="team-panel-status" id="shipStatus"></div>
+  `
+
+  panel.querySelector<HTMLButtonElement>('#shipButton')!.addEventListener('click', async () => {
+    const profile = session.profile
+    if (!profile) return
+    const messageInput = panel.querySelector<HTMLTextAreaElement>('#shipMessage')!
+    const statusEl = panel.querySelector<HTMLElement>('#shipStatus')!
+    const message = messageInput.value.trim() || 'No message'
+    const btn = panel.querySelector<HTMLButtonElement>('#shipButton')!
+    btn.disabled = true
+    btn.textContent = 'Saving\u2026'
+    try {
+      await shipTeamState(teamId, { uid: profile.uid, displayName: profile.displayName, message }, buildSnapshot() as unknown as Record<string, unknown>)
+      messageInput.value = ''
+      statusEl.textContent = 'Shipped \u2014 your team will see this next time they open the workshop.'
+      toast('Saved to team', 'success')
+    } catch (err) {
+      console.error('SunRoot: ship to team failed', err)
+      statusEl.textContent = 'Save failed \u2014 check your connection and try again.'
+    } finally {
+      btn.disabled = false
+      btn.textContent = 'Save & ship to team'
+    }
+  })
 }
 
 export function renderNav(items: NavItem[], active: Screen) {
