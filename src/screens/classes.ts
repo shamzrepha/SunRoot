@@ -51,19 +51,40 @@ export function renderClasses(root: HTMLElement, nav: ClassNav) {
 async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav) {
   root.innerHTML = `<div class="screen"><p class="empty-note">Loading classes\u2026</p></div>`
 
-  const [classrooms, invites] = await Promise.all([
-    listClassroomsForUser(profile),
-    profile.role !== 'teacher' ? listPendingInvites(profile.uid) : Promise.resolve([] as ClassroomInvite[]),
-  ])
-
-  // For students/individuals, pull each classroom's real progress snapshot
-  // so the card can show honest mastery/XP, not a placeholder.
+  let classrooms: Classroom[]
+  let invites: ClassroomInvite[]
   const myProgressByClassroom: Record<string, ProgressSnapshot | null> = {}
-  if (profile.role !== 'teacher') {
-    const snaps = await Promise.all(classrooms.map((c) => fetchClassroomProgress(c.id, [profile.uid])))
-    classrooms.forEach((c, i) => {
-      myProgressByClassroom[c.id] = snaps[i][profile.uid] ?? null
-    })
+
+  try {
+    ;[classrooms, invites] = await Promise.all([
+      listClassroomsForUser(profile),
+      profile.role !== 'teacher' ? listPendingInvites(profile.uid) : Promise.resolve([] as ClassroomInvite[]),
+    ])
+
+    // For students/individuals, pull each classroom's real progress snapshot
+    // so the card can show honest mastery/XP, not a placeholder.
+    if (profile.role !== 'teacher') {
+      const snaps = await Promise.all(classrooms.map((c) => fetchClassroomProgress(c.id, [profile.uid])))
+      classrooms.forEach((c, i) => {
+        myProgressByClassroom[c.id] = snaps[i][profile.uid] ?? null
+      })
+    }
+  } catch (err) {
+    // A failed fetch used to leave this screen stuck on "Loading classes…"
+    // forever with no signal why — this is the fix: show an actual error
+    // and a way to retry instead of hanging silently.
+    console.error('SunRoot: failed to load classes', err)
+    root.innerHTML = `
+      <div class="screen">
+        <div class="class-panel">
+          <h2>Couldn\u2019t load your classes</h2>
+          <p class="empty-note">Something went wrong reaching the database. This is usually temporary.</p>
+          <button class="ghost-button" id="retryClassesBtn">Try again</button>
+        </div>
+      </div>
+    `
+    root.querySelector('#retryClassesBtn')?.addEventListener('click', () => renderList(root, profile, nav))
+    return
   }
 
   let showCreateForm = false
