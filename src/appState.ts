@@ -7,6 +7,7 @@ export type Screen =
   | 'profile'
   | 'leaderboard'
   | 'messages'
+  | 'workshopHub'
   | 'loading'
   | 'intro'
   | 'shed'

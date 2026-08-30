@@ -20,6 +20,28 @@ import type { Classroom, ClassroomInvite, ProgressSnapshot, Team, TeamRole, User
 
 type ClassNav = { toWorkshop: (classroomId: string) => void; toTeamWorkshop: (classroomId: string, teamId: string) => void }
 
+const CLASS_ICON_COLORS = [
+  { bg: '#FDF0DC', fg: '#E8A33D' },
+  { bg: '#FBE4EC', fg: '#D8567F' },
+  { bg: '#E4F7EC', fg: '#1FA35C' },
+  { bg: '#E1EEFB', fg: '#3B82C4' },
+  { bg: '#F1E9FB', fg: '#8B5FBF' },
+]
+
+function topicIcon(topic: string, color: string): string {
+  const t = topic.toLowerCase()
+  if (t.includes('solar') || t.includes('irrigation')) {
+    return `<svg viewBox="0 0 24 24" width="20" height="20" fill="${color}"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="${color}" stroke-width="1.8" stroke-linecap="round"/></svg>`
+  }
+  if (t.includes('robot') || t.includes('mechatronic') || t.includes('automation')) {
+    return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="${color}" stroke-width="1.8"><rect x="5" y="8" width="14" height="10" rx="2"/><circle cx="9.5" cy="13" r="1.3" fill="${color}"/><circle cx="14.5" cy="13" r="1.3" fill="${color}"/><path d="M12 8V4M9 4h6"/></svg>`
+  }
+  if (t.includes('water') || t.includes('hydraulic')) {
+    return `<svg viewBox="0 0 24 24" width="20" height="20" fill="${color}"><path d="M12 2c4 5 7 8.5 7 12.5A7 7 0 0 1 5 14.5C5 10.5 8 7 12 2z"/></svg>`
+  }
+  return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="${color}" stroke-width="1.8"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="M2 16l10 5 10-5M2 12l10 5 10-5"/></svg>`
+}
+
 export function renderClasses(root: HTMLElement, nav: ClassNav) {
   const profile = session.profile
   if (!profile) return
@@ -34,13 +56,24 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
     profile.role !== 'teacher' ? listPendingInvites(profile.uid) : Promise.resolve([] as ClassroomInvite[]),
   ])
 
+  // For students/individuals, pull each classroom's real progress snapshot
+  // so the card can show honest mastery/XP, not a placeholder.
+  const myProgressByClassroom: Record<string, ProgressSnapshot | null> = {}
+  if (profile.role !== 'teacher') {
+    const snaps = await Promise.all(classrooms.map((c) => fetchClassroomProgress(c.id, [profile.uid])))
+    classrooms.forEach((c, i) => {
+      myProgressByClassroom[c.id] = snaps[i][profile.uid] ?? null
+    })
+  }
+
   let showCreateForm = false
 
   function paint() {
     root.innerHTML = `
       <div class="screen">
         <div class="lab-header">
-          <div><h1>My Classes</h1><p>${profile.role === 'teacher' ? 'Classes you teach.' : 'Classes you\u2019re part of.'}</p></div>
+          <div><h1>My Classes</h1><p>${profile.role === 'teacher' ? 'Classes you teach.' : 'Your learning journey across classrooms.'}</p></div>
+          ${profile.role === 'teacher' ? `<button class="primary-button" id="showCreateBtn">+ Create Class</button>` : ''}
         </div>
 
         ${
@@ -63,10 +96,8 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
         }
 
         ${
-          profile.role === 'teacher'
-            ? !showCreateForm
-              ? `<button class="ghost-button" id="showCreateBtn">+ New class</button>`
-              : `<div class="class-panel">
+          profile.role === 'teacher' && showCreateForm
+            ? `<div class="class-panel">
                   <h2>Create a class</h2>
                   <form id="createClassForm" class="inline-form-stack">
                     <input type="text" id="className" placeholder="Class name" required />
@@ -103,19 +134,42 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
             : ''
         }
 
-        <div class="class-list">
+        <div class="class-cards">
           ${
             classrooms.length
               ? classrooms
-                  .map(
-                    (c) => `<button class="class-row" data-classroom="${c.id}">
-                      <div>
-                        <div class="class-row-name">${escapeHtml(c.name)} ${c.isDemo ? '<span class="tag-badge">Demo</span>' : ''}</div>
-                        <div class="class-row-sub">by ${escapeHtml(c.teacherName)} \u00b7 ${escapeHtml(c.topic)} \u00b7 ${c.studentIds.length} student${c.studentIds.length === 1 ? '' : 's'}</div>
+                  .map((c, i) => {
+                    const p = myProgressByClassroom[c.id]
+                    const pct = p ? Math.round(p.overallMastery * 100) : 0
+                    const swatch = CLASS_ICON_COLORS[i % CLASS_ICON_COLORS.length]
+                    return `<button class="class-card-row" data-classroom="${c.id}">
+                      <div class="class-card-icon" style="background:${swatch.bg}">${topicIcon(c.topic, swatch.fg)}</div>
+                      <div class="class-card-mid">
+                        <div class="class-card-name">${escapeHtml(c.name)}</div>
+                        <div class="class-card-sub">${escapeHtml(c.topic)}</div>
+                        <div class="class-card-by">by ${escapeHtml(c.teacherName)}</div>
+                        ${c.isDemo ? `<span class="tag-badge">Demo Class</span> <span class="tag-badge tag-badge-muted">Pinned</span>` : ''}
                       </div>
-                      <span>\u2192</span>
-                    </button>`,
-                  )
+                      ${
+                        profile.role !== 'teacher'
+                          ? `<div class="class-card-progress">
+                              <div class="class-card-progress-label">Progress</div>
+                              <div class="cb-track class-card-track"><div class="cb-fill high" style="width:${pct}%"></div></div>
+                              <div class="class-card-stats">
+                                <span><strong>${pct}%</strong> Mastery</span>
+                                <span><strong>${p?.xp ?? 0}</strong> XP</span>
+                                <span><strong>${c.studentIds.length}</strong> Students</span>
+                              </div>
+                            </div>`
+                          : `<div class="class-card-progress">
+                              <div class="class-card-stats">
+                                <span><strong>${c.studentIds.length}</strong> Students</span>
+                              </div>
+                            </div>`
+                      }
+                      <span class="class-card-cta">${profile.role === 'teacher' ? 'Open Class' : 'Open Workshop'} \u2192</span>
+                    </button>`
+                  })
                   .join('')
               : `<p class="empty-note">${profile.role === 'teacher' ? 'Create your first class above.' : 'No classes yet \u2014 check Find a Class to join one.'}</p>`
           }
@@ -210,7 +264,7 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
       }
     })
 
-    root.querySelectorAll<HTMLButtonElement>('.class-row').forEach((btn) => {
+    root.querySelectorAll<HTMLButtonElement>('.class-card-row').forEach((btn) => {
       btn.addEventListener('click', () => renderDetail(root, profile, btn.dataset.classroom!, nav))
     })
   }

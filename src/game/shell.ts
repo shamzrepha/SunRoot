@@ -16,6 +16,16 @@ export interface NavItem {
   locked?: boolean
 }
 
+/**
+ * Toggles the persistent sidebar (and body background) between the light
+ * "campus" theme (Dashboard, My Classes, Login) and the dark "engineering
+ * workspace" theme (everything inside a workshop). The sidebar itself is
+ * mounted once and never rebuilt, so this is a class toggle, not a re-render.
+ */
+export function setSidebarTheme(theme: 'campus' | 'workshop') {
+  document.body.classList.toggle('theme-campus', theme === 'campus')
+}
+
 let onNavigate: ((s: Screen) => void) | null = null
 
 export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {

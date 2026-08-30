@@ -12,7 +12,7 @@ import { mountAssistantDock } from './ai/AssistantDock'
 import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
 import { renderFarm, stopFarmLoop } from './screens/farm'
 import { renderTutor, renderReport, renderQuiz, renderRewards } from './screens/extras'
-import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, transitionView } from './game/shell'
+import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, setSidebarTheme, transitionView } from './game/shell'
 import type { NavItem } from './game/shell'
 import { farm } from './simulation/FarmState'
 
@@ -24,7 +24,7 @@ import { getTeam } from './accounts/TeamService'
 import { onAuthChange, logOut } from './accounts/AuthService'
 import { session, refreshProfile } from './accounts/Session'
 import { setActiveClassroom, getActiveClassroom, setActiveTeam } from './accounts/WorkshopContext'
-import { ensureDemoClassroomExists } from './accounts/ClassroomService'
+import { ensureDemoClassroomExists, DEMO_CLASSROOM_ID } from './accounts/ClassroomService'
 import { renderLogin } from './screens/login'
 import { renderDashboard } from './screens/dashboard'
 import { renderClasses } from './screens/classes'
@@ -40,7 +40,7 @@ let shellMounted = false
 let hudTimer = 0
 let postLoadingScreen: Screen = 'dashboard'
 
-const WORKSHOP_SCREENS: Screen[] = ['farm', 'shed', 'circuit', 'coding', 'learning', 'quiz', 'report', 'rewards', 'tutor']
+const WORKSHOP_SCREENS: Screen[] = ['workshopHub', 'farm', 'shed', 'circuit', 'coding', 'learning', 'quiz', 'report', 'rewards', 'tutor']
 
 function navItems(screen: Screen): NavItem[] {
   // The build/progress screens are the actual digital twin — deliberately
@@ -66,6 +66,7 @@ function navItems(screen: Screen): NavItem[] {
   }
 
   if (inWorkshop) {
+    items.push({ id: 'workshopHub' as Screen, label: 'Overview', icon: icon('class'), group: 'Build' })
     items.push({ id: 'farm' as Screen, label: 'Farm', icon: icon('farm'), group: 'Build' })
     items.push({ id: 'shed' as Screen, label: 'Tool shed', icon: icon('shed'), group: 'Build' })
     items.push({ id: 'circuit' as Screen, label: 'Circuit lab', icon: icon('circuit'), group: 'Build' })
@@ -126,6 +127,7 @@ export function goTo(screen: Screen) {
   if (screen === 'login') {
     shellMounted = false
     cancelAnimationFrame(hudTimer)
+    setSidebarTheme('campus') // login has no sidebar yet, but this also flips body.theme-campus for the auth card styling
     renderLogin(root, () => goTo('loading'))
     return
   }
@@ -155,9 +157,15 @@ export function goTo(screen: Screen) {
   renderNav(navItems(screen), screen)
   updateRankUi()
   updateTeamPanel()
+  setSidebarTheme(WORKSHOP_SCREENS.includes(screen) ? 'workshop' : 'campus')
 
   transitionView((host) => {
-    if (screen === 'shed') {
+    if (screen === 'workshopHub') {
+      import('./screens/workshopHub').then(({ renderWorkshopHub }) => {
+        if (appState.screen !== 'workshopHub') return
+        renderWorkshopHub(host, () => goTo('shed'))
+      })
+    } else if (screen === 'shed') {
       renderToolShed(host, () => goTo('circuit'))
       narrateOnce(
         'shed',
@@ -198,6 +206,12 @@ export function goTo(screen: Screen) {
         toFindClass: () => goTo('findClass'),
         onLogout: () => logOut().then(() => goTo('login')),
         toAdmin: () => goTo('admin'),
+        toDemoWorkshop: () => {
+          setActiveClassroom(DEMO_CLASSROOM_ID)
+          setActiveTeam(null)
+          restoreForActiveClassroom()
+          goTo('workshopHub')
+        },
       })
     } else if (screen === 'classes') {
       renderClasses(host, {
@@ -205,7 +219,7 @@ export function goTo(screen: Screen) {
           setActiveClassroom(classroomId)
           setActiveTeam(null) // solo workshop unless a team entry point sets this itself
           restoreForActiveClassroom()
-          goTo('farm')
+          goTo('workshopHub')
         },
         toTeamWorkshop: async (classroomId, teamId) => {
           setActiveClassroom(classroomId)
@@ -218,7 +232,7 @@ export function goTo(screen: Screen) {
             ? applySnapshot(team.sharedState as any)
             : false
           if (!pulled) restoreForActiveClassroom()
-          goTo('farm')
+          goTo('workshopHub')
         },
       })
     } else if (screen === 'findClass') {
