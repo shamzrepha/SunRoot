@@ -14,11 +14,14 @@ import {
 import { createTeam, joinTeam, listTeamsForClassroom, setMyTeamRole, teamBudgetRemaining } from '../accounts/TeamService'
 import { fetchClassroomProgress, isRecentlyActive } from '../accounts/ProgressService'
 import { generateTeachingRecommendations, generateStudentRecommendation } from '../ai/TeachingInsights'
+import { listStudySetsForClassroom, createStudySet, deleteStudySet } from '../accounts/StudySetService'
+import { generateStudySet } from '../ai/StudySetGenerator'
+import { openStudySet } from './studySetViewer'
 import { CONCEPT_BY_ID, MASTERY_THRESHOLD } from '../learning/LearnerModel'
 import { CLASS_TOPICS, TEAM_ROLES } from '../accounts/types'
-import type { Classroom, ClassroomInvite, ProgressSnapshot, Team, TeamRole, UserProfile } from '../accounts/types'
+import type { Classroom, ClassroomInvite, ProgressSnapshot, StudySet, Team, TeamRole, UserProfile } from '../accounts/types'
 
-type ClassNav = { toWorkshop: (classroomId: string) => void; toTeamWorkshop: (classroomId: string, teamId: string) => void }
+type ClassNav = { toWorkshop: (classroomId: string) => void; toTeamWorkshop: (classroomId: string, teamId: string) => void; toStudySetViewer: () => void }
 
 const CLASS_ICON_COLORS = [
   { bg: 'rgba(232,185,66,0.14)', fg: '#e8b942' },
@@ -303,9 +306,10 @@ async function renderDetail(root: HTMLElement, profile: UserProfile, classroomId
     return
   }
 
-  const [roster, teams] = await Promise.all([
+  const [roster, teams, studySets] = await Promise.all([
     fetchUsersByIds(classroom.studentIds),
     listTeamsForClassroom(classroomId),
+    listStudySetsForClassroom(classroomId),
   ])
 
   const isOwner = profile.role === 'teacher' && classroom.teacherId === profile.uid
@@ -313,7 +317,7 @@ async function renderDetail(root: HTMLElement, profile: UserProfile, classroomId
   // yours (or someone else's) gets a completely separate snapshot.
   const progressByUid = isOwner ? await fetchClassroomProgress(classroom.id, classroom.studentIds) : {}
 
-  paintDetail(root, profile, classroom, roster, teams, isOwner, nav, progressByUid)
+  paintDetail(root, profile, classroom, roster, teams, isOwner, nav, progressByUid, studySets)
 }
 
 interface ClassAnalytics {
@@ -374,6 +378,7 @@ function paintDetail(
   isOwner: boolean,
   nav: ClassNav,
   progressByUid: Record<string, ProgressSnapshot>,
+  studySets: StudySet[],
 ) {
   const analytics = isOwner ? computeClassAnalytics(roster, progressByUid) : null
   root.innerHTML = `
@@ -388,6 +393,42 @@ function paintDetail(
       </div>
 
       <button class="primary-button" id="openWorkshopBtn">Open Workshop \u2192</button>
+
+      <div class="class-panel study-set-panel">
+        <h2>Study sets</h2>
+        <p class="empty-note">AI-generated notes, flashcards, and a quiz \u2014 built from course notes the teacher provides.</p>
+        ${
+          isOwner
+            ? `<button class="ghost-button" id="showStudySetFormBtn">+ New study set</button>
+                <form id="studySetForm" class="inline-form-stack" hidden>
+                  <input type="text" id="studySetTitle" placeholder="Title, e.g. Unit 3: Feedback Control" required />
+                  <textarea id="studySetSource" placeholder="Paste or type your course notes here \u2014 the AI will build the study set from exactly this." rows="8" required></textarea>
+                  <div class="inline-form">
+                    <button type="submit" class="primary-button" id="generateStudySetBtn">Generate with AI</button>
+                    <button type="button" class="ghost-button" id="cancelStudySetBtn">Cancel</button>
+                  </div>
+                  <p class="empty-note" id="studySetStatus"></p>
+                </form>`
+            : ''
+        }
+        ${
+          studySets.length
+            ? `<ul class="roster-list" style="margin-top:12px">
+                ${studySets
+                  .map(
+                    (s) => `<li data-set="${s.id}">
+                      <span>${escapeHtml(s.title)} <span class="empty-note">by ${escapeHtml(s.teacherName)} \u00b7 ${s.flashcards.length} cards \u00b7 ${s.quiz.length} questions</span></span>
+                      <div class="invite-actions">
+                        <button class="ghost-button small open-set-btn" data-set="${s.id}">Open</button>
+                        ${isOwner ? `<button class="ghost-button small danger-btn delete-set-btn" data-set="${s.id}">Delete</button>` : ''}
+                      </div>
+                    </li>`,
+                  )
+                  .join('')}
+              </ul>`
+            : `<p class="empty-note" style="margin-top:8px">No study sets yet.</p>`
+        }
+      </div>
 
       ${
         isOwner && analytics
@@ -668,6 +709,62 @@ function paintDetail(
       : `<p class="empty-note">Couldn\u2019t generate recommendations: ${escapeHtml(res.error ?? 'unknown error')}</p>`
   })
   root.querySelector('#openWorkshopBtn')?.addEventListener('click', () => nav.toWorkshop(classroom.id))
+
+  root.querySelector('#showStudySetFormBtn')?.addEventListener('click', () => {
+    root.querySelector<HTMLElement>('#studySetForm')!.hidden = false
+    root.querySelector<HTMLElement>('#showStudySetFormBtn')!.hidden = true
+  })
+  root.querySelector('#cancelStudySetBtn')?.addEventListener('click', () => {
+    root.querySelector<HTMLElement>('#studySetForm')!.hidden = true
+    root.querySelector<HTMLElement>('#showStudySetFormBtn')!.hidden = false
+  })
+
+  root.querySelector<HTMLFormElement>('#studySetForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const titleInput = root.querySelector<HTMLInputElement>('#studySetTitle')!
+    const sourceInput = root.querySelector<HTMLTextAreaElement>('#studySetSource')!
+    const statusEl = root.querySelector<HTMLParagraphElement>('#studySetStatus')!
+    const btn = root.querySelector<HTMLButtonElement>('#generateStudySetBtn')!
+    if (!titleInput.value.trim() || !sourceInput.value.trim()) return
+
+    btn.disabled = true
+    btn.textContent = 'Generating\u2026 this can take a bit'
+    statusEl.textContent = ''
+
+    const result = await generateStudySet(sourceInput.value)
+    if (result.error) {
+      statusEl.textContent = `Couldn\u2019t generate a study set: ${result.error}`
+      btn.disabled = false
+      btn.textContent = 'Generate with AI'
+      return
+    }
+
+    await createStudySet({
+      classroomId: classroom.id,
+      teacherId: profile.uid,
+      teacherName: profile.displayName,
+      title: titleInput.value.trim(),
+      sourceText: sourceInput.value,
+      notes: result.notes,
+      flashcards: result.flashcards,
+      quiz: result.quiz,
+    })
+    renderDetail(root, profile, classroom.id, nav)
+  })
+
+  root.querySelectorAll<HTMLButtonElement>('.open-set-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      openStudySet(btn.dataset.set!)
+      nav.toStudySetViewer()
+    })
+  })
+  root.querySelectorAll<HTMLButtonElement>('.delete-set-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this study set? This can\u2019t be undone.')) return
+      await deleteStudySet(btn.dataset.set!)
+      renderDetail(root, profile, classroom.id, nav)
+    })
+  })
 
   root.querySelector<HTMLFormElement>('#inviteForm')?.addEventListener('submit', async (e) => {
     e.preventDefault()

@@ -8,6 +8,7 @@ export type Screen =
   | 'leaderboard'
   | 'messages'
   | 'workshopHub'
+  | 'studySetViewer'
   | 'loading'
   | 'intro'
   | 'shed'

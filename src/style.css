@@ -4003,3 +4003,58 @@ body.theme-campus .link-button { color: var(--campus-green-dark); }
 .ws-hero-card:hover { border-color: var(--ws-green); }
 .ws-hero-card:focus-visible { outline: 2px solid var(--ws-green); outline-offset: 2px; }
 .ws-hero-card .primary-button { position: relative; z-index: 2; }
+
+/* ---------- Study sets: notes, flashcards, quiz ---------- */
+.study-notes h2, .study-notes h3, .study-notes h4 { color: var(--campus-text); margin: 14px 0 6px; }
+.study-notes h2:first-child, .study-notes h3:first-child, .study-notes h4:first-child { margin-top: 0; }
+.study-notes p { color: var(--campus-text); font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
+.study-notes li { color: var(--campus-text); font-size: 14px; line-height: 1.6; margin-left: 20px; }
+
+.flashcard-panel { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.flashcard {
+  width: 100%;
+  max-width: 480px;
+  height: 220px;
+  perspective: 1200px;
+  cursor: pointer;
+  position: relative;
+}
+.flashcard-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  border-radius: 14px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--campus-text);
+  backface-visibility: hidden;
+  transition: transform 0.4s;
+  border: 1px solid var(--campus-border);
+}
+.flashcard-front { background: var(--campus-card); transform: rotateY(0deg); }
+.flashcard-back { background: var(--campus-green-bg); border-color: var(--campus-green); transform: rotateY(180deg); }
+.flashcard.is-flipped .flashcard-front { transform: rotateY(-180deg); }
+.flashcard.is-flipped .flashcard-back { transform: rotateY(0deg); }
+
+.quiz-options { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.quiz-option {
+  text-align: left;
+  background: var(--campus-card);
+  border: 1px solid var(--campus-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: var(--campus-text);
+  cursor: pointer;
+  font-size: 14px;
+}
+.quiz-option:hover { border-color: var(--campus-green); }
+.quiz-option.is-selected { background: var(--campus-green-bg); border-color: var(--campus-green); }
+.quiz-review { padding: 12px 0; border-bottom: 1px solid var(--campus-border); }
+.quiz-review:last-of-type { border-bottom: none; }
+.quiz-review p { margin: 0 0 4px; color: var(--campus-text); font-size: 13.5px; }
+.quiz-review.is-right p:nth-child(2) { color: var(--campus-green); }
+.quiz-review.is-wrong p:nth-child(2) { color: #e8836b; }

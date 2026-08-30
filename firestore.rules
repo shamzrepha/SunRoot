@@ -114,5 +114,14 @@ service cloud.firestore {
       allow update: if isAdminUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
       allow delete: if isAdminUser();
     }
+
+    match /studySets/{setId} {
+      // Same low bar as classrooms — any signed-in user can read (students
+      // need to see sets in classes they're in, and this avoids a per-class
+      // membership check in rules). Only the owning teacher can write.
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
+    }
   }
 }

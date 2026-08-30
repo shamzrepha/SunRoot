@@ -222,3 +222,33 @@ export interface MessageReport {
   status: ReportStatus
   createdAt: number
 }
+
+export interface StudyFlashcard {
+  question: string
+  answer: string
+}
+
+export interface StudyQuizQuestion {
+  question: string
+  options: string[]
+  correctIndex: number
+  explanation: string
+}
+
+/**
+ * A teacher pastes/types course notes; AI generates a structured summary,
+ * flashcards, and a quiz from that text — the same source material every
+ * generated piece is grounded in, not independently invented.
+ */
+export interface StudySet {
+  id: string
+  classroomId: string
+  teacherId: string
+  teacherName: string
+  title: string
+  sourceText: string
+  notes: string
+  flashcards: StudyFlashcard[]
+  quiz: StudyQuizQuestion[]
+  createdAt: number
+}

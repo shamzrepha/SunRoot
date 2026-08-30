@@ -33,6 +33,7 @@ import { renderAdmin } from './screens/admin'
 import { renderProfile } from './screens/profile'
 import { renderLeaderboard } from './screens/leaderboard'
 import { renderMessages, openThreadWith } from './screens/messages'
+import { renderStudySetViewer } from './screens/studySetViewer'
 import { renderCompleteProfile } from './screens/completeProfile'
 
 const root = document.querySelector<HTMLDivElement>('#app')!
@@ -234,6 +235,7 @@ export function goTo(screen: Screen) {
           if (!pulled) restoreForActiveClassroom()
           goTo('workshopHub')
         },
+        toStudySetViewer: () => goTo('studySetViewer'),
       })
     } else if (screen === 'findClass') {
       renderFindClass(host)
@@ -245,6 +247,8 @@ export function goTo(screen: Screen) {
       renderLeaderboard(host)
     } else if (screen === 'messages') {
       renderMessages(host)
+    } else if (screen === 'studySetViewer') {
+      renderStudySetViewer(host, () => goTo('classes'))
     } else if (screen === 'learning') {
       renderLearning(host)
     } else if (screen === 'teacher') {
