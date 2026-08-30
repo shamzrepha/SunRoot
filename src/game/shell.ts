@@ -246,6 +246,12 @@ export function renderHud(fields: { label: string; value: string; tone?: string 
     .join('')
 }
 
+/** The live telemetry bar only makes sense while actually looking at the farm — hidden everywhere else. */
+export function setHudVisible(visible: boolean) {
+  const hud = document.querySelector<HTMLElement>('#hud')
+  if (hud) hud.hidden = !visible
+}
+
 export function updateRankUi() {
   const { current, next } = rankFor(progress.xp)
   const nameEl = document.querySelector<HTMLElement>('#rankName')

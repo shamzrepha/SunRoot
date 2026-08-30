@@ -12,7 +12,7 @@ import { mountAssistantDock } from './ai/AssistantDock'
 import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
 import { renderFarm, stopFarmLoop } from './screens/farm'
 import { renderTutor, renderReport, renderQuiz, renderRewards } from './screens/extras'
-import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, setSidebarTheme, transitionView } from './game/shell'
+import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, setSidebarTheme, setHudVisible, transitionView } from './game/shell'
 import type { NavItem } from './game/shell'
 import { farm } from './simulation/FarmState'
 
@@ -159,6 +159,7 @@ export function goTo(screen: Screen) {
   updateRankUi()
   updateTeamPanel()
   setSidebarTheme(WORKSHOP_SCREENS.includes(screen) ? 'workshop' : 'campus')
+  setHudVisible(screen === 'farm')
 
   transitionView((host) => {
     if (screen === 'workshopHub') {
