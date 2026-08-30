@@ -24,7 +24,7 @@ export function renderWorkshopHub(root: HTMLElement, toToolShed: () => void) {
       </div>
 
       <div class="ws-hub-grid">
-        <div class="ws-hero-card">
+        <div class="ws-hero-card" id="heroCard" role="button" tabindex="0">
           <div class="ws-hero-tag">Current stage</div>
           <h2>Build Your System</h2>
           <p class="ws-hero-copy">Select components, write your circuit and code, and run your solution in the farm.</p>
@@ -65,6 +65,10 @@ export function renderWorkshopHub(root: HTMLElement, toToolShed: () => void) {
   `
 
   root.querySelector('#goToShedBtn')?.addEventListener('click', toToolShed)
+  root.querySelector('#heroCard')?.addEventListener('click', toToolShed)
+  root.querySelector<HTMLElement>('#heroCard')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') toToolShed()
+  })
   root.querySelectorAll<HTMLButtonElement>('.ws-prompt-btn').forEach((btn) => {
     btn.addEventListener('click', toToolShed) // for now, routes into the build flow — full tutor chat lives on the Tutor screen
   })

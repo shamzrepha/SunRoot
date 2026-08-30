@@ -74,7 +74,7 @@ export function renderDashboard(
             ? `<div class="dash-two-col">
                 <div class="class-panel continue-card">
                   <h2>Continue learning</h2>
-                  <div class="continue-thumb">${farmThumb()}</div>
+                  <div class="continue-thumb" id="continueThumb" role="button" tabindex="0">${farmThumb()}</div>
                   <div class="continue-title">SunRoot Original</div>
                   <div class="continue-sub">Solar + Irrigation Systems</div>
                   <div class="cb-track continue-track"><div class="cb-fill high" style="width:${Math.round(overallMastery * 100)}%"></div></div>
@@ -116,6 +116,10 @@ export function renderDashboard(
     root.querySelector('#toLogout')?.addEventListener('click', nav.onLogout)
     root.querySelector('#toAdminBtn')?.addEventListener('click', nav.toAdmin)
     root.querySelector('#toWorkshopBtn')?.addEventListener('click', nav.toDemoWorkshop)
+    root.querySelector('#continueThumb')?.addEventListener('click', nav.toDemoWorkshop)
+    root.querySelector<HTMLElement>('#continueThumb')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') nav.toDemoWorkshop()
+    })
   })
 }
 
@@ -175,10 +179,10 @@ function boltIcon() {
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="#E8813D"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>`
 }
 function checkIcon() {
-  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#1FA35C" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>`
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#4fd67a" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>`
 }
 function bookIcon() {
-  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3B82C4" stroke-width="2"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/></svg>`
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#7ac5ff" stroke-width="2"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/></svg>`
 }
 function farmThumb() {
   return `<svg viewBox="0 0 260 100" preserveAspectRatio="xMidYMid slice">

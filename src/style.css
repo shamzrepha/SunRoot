@@ -6,24 +6,24 @@
   text-rendering: optimizeLegibility;
 
   /* ---- Campus (light) theme tokens ---- */
-  --campus-bg: #F6F7FA;
-  --campus-sidebar: #FFFFFF;
-  --campus-card: #FFFFFF;
-  --campus-border: #E7E9EF;
-  --campus-text: #182233;
-  --campus-text-muted: #6B7280;
-  --campus-green: #1FA35C;
-  --campus-green-dark: #158049;
-  --campus-green-bg: #E4F7EC;
-  --campus-gold: #E8A33D;
-  --campus-gold-bg: #FDF0DC;
-  --campus-orange: #E8813D;
-  --campus-orange-bg: #FDE7DA;
-  --campus-blue: #3B82C4;
-  --campus-blue-bg: #E1EEFB;
-  --campus-pink: #D8567F;
-  --campus-pink-bg: #FBE4EC;
-  --campus-shadow: 0 1px 2px rgba(20, 30, 50, 0.04), 0 4px 16px rgba(20, 30, 50, 0.06);
+  --campus-bg: #101713;
+  --campus-sidebar: #0D1310;
+  --campus-card: rgba(255,255,255,0.035);
+  --campus-border: rgba(255,255,255,0.08);
+  --campus-text: #eaf9ee;
+  --campus-text-muted: #97a1b0;
+  --campus-green: #4fd67a;
+  --campus-green-dark: #3fc46a;
+  --campus-green-bg: rgba(79,214,122,0.14);
+  --campus-gold: #e8b942;
+  --campus-gold-bg: rgba(232,185,66,0.14);
+  --campus-orange: #e8a33d;
+  --campus-orange-bg: rgba(232,163,61,0.14);
+  --campus-blue: #7ac5ff;
+  --campus-blue-bg: rgba(122,197,255,0.14);
+  --campus-pink: #e087a8;
+  --campus-pink-bg: rgba(224,135,168,0.14);
+  --campus-shadow: 0 10px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
 
   /* ---- Workshop (dark) theme tokens ---- */
   --ws-bg: #0D1220;
@@ -3909,7 +3909,7 @@ body.theme-campus .field input { background: var(--campus-bg); border-color: var
 
 .radar-svg { width: 100%; height: auto; max-width: 260px; display: block; margin: 4px auto; }
 .radar-ring { fill: none; stroke: var(--campus-border); stroke-width: 1; }
-.radar-fill { fill: rgba(31, 163, 92, 0.22); stroke: var(--campus-green); stroke-width: 1.6; }
+.radar-fill { fill: rgba(79, 214, 122, 0.22); stroke: var(--campus-green); stroke-width: 1.6; }
 .radar-label { font-size: 8.5px; fill: var(--campus-text-muted); font-family: 'Inter', sans-serif; }
 
 @media (max-width: 860px) {
@@ -3994,3 +3994,12 @@ body.theme-campus .link-button { color: var(--campus-green-dark); }
   .login-screen { grid-template-columns: 1fr !important; }
   .login-hero { min-height: 220px; }
 }
+
+/* ---------- Dark-mode-only follow-up: clickable canvas areas ---------- */
+.continue-thumb { cursor: pointer; transition: opacity 0.15s; }
+.continue-thumb:hover { opacity: 0.88; }
+.continue-thumb:focus-visible { outline: 2px solid var(--campus-green); outline-offset: 2px; }
+.ws-hero-card { cursor: pointer; transition: border-color 0.15s; }
+.ws-hero-card:hover { border-color: var(--ws-green); }
+.ws-hero-card:focus-visible { outline: 2px solid var(--ws-green); outline-offset: 2px; }
+.ws-hero-card .primary-button { position: relative; z-index: 2; }

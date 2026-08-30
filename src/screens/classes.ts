@@ -21,11 +21,11 @@ import type { Classroom, ClassroomInvite, ProgressSnapshot, Team, TeamRole, User
 type ClassNav = { toWorkshop: (classroomId: string) => void; toTeamWorkshop: (classroomId: string, teamId: string) => void }
 
 const CLASS_ICON_COLORS = [
-  { bg: '#FDF0DC', fg: '#E8A33D' },
-  { bg: '#FBE4EC', fg: '#D8567F' },
-  { bg: '#E4F7EC', fg: '#1FA35C' },
-  { bg: '#E1EEFB', fg: '#3B82C4' },
-  { bg: '#F1E9FB', fg: '#8B5FBF' },
+  { bg: 'rgba(232,185,66,0.14)', fg: '#e8b942' },
+  { bg: 'rgba(224,135,168,0.14)', fg: '#e087a8' },
+  { bg: 'rgba(79,214,122,0.14)', fg: '#4fd67a' },
+  { bg: 'rgba(122,197,255,0.14)', fg: '#7ac5ff' },
+  { bg: 'rgba(180,140,230,0.14)', fg: '#b48ce6' },
 ]
 
 function topicIcon(topic: string, color: string): string {
