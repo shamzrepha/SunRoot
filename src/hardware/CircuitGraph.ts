@@ -288,6 +288,33 @@ function solver(): UnionFind {
     }
   }
 
+  // Internal ground plane continuity for every component on the bench.
+  // All GND pins on a single board (e.g. ESP32 GND 1, 2, 3, or Buck IN-/OUT-)
+  // are connected on copper layer. Joining them here means connecting Battery GND
+  // to ESP32 GND 1 automatically grounds ESP32 GND 2 and any sensor connected to it.
+  for (const inst of graph.placed) {
+    if (isBreadboard(inst.instanceId)) continue
+    const terms = terminalsOf(inst.instanceId)
+    const groundTerms = terms.filter(
+      (t) =>
+        t.role === 'groundIn' ||
+        (t.role as string) === 'groundOut' ||
+        t.name.toUpperCase().startsWith('GND') ||
+        t.name === '-' ||
+        t.name === 'IN-' ||
+        t.name === 'OUT-' ||
+        t.name === 'BAT-' ||
+        t.name === 'PV-' ||
+        t.name === 'LOAD-' ||
+        t.name === 'VIN-' ||
+        t.name === 'K' ||
+        t.name === 'E',
+    )
+    for (let i = 1; i < groundTerms.length; i++) {
+      uf.union(nodeKey(inst.instanceId, groundTerms[0].name), nodeKey(inst.instanceId, groundTerms[i].name))
+    }
+  }
+
   // Internal continuity of every breadboard on the bench.
   for (const inst of graph.placed) {
     if (!isBreadboard(inst.instanceId)) continue

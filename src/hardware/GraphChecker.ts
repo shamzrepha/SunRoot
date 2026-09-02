@@ -179,12 +179,27 @@ function checkPower(): Issue[] {
       }
     }
 
-    // Boards expose several ground pins onto one internal plane. Grounding any
-    // one of them grounds the board, so only complain when none are connected.
+    // Ground continuity check:
+    // A component is grounded if any of its ground terminals shares an electrical node
+    // with any other component's ground terminal or power return.
+    const isGndTerm = (name: string, role?: string) =>
+      role === 'groundIn' ||
+      role === 'groundOut' ||
+      name.toUpperCase().startsWith('GND') ||
+      name === '-' ||
+      name === 'IN-' ||
+      name === 'OUT-' ||
+      name === 'BAT-' ||
+      name === 'PV-' ||
+      name === 'LOAD-' ||
+      name === 'VIN-' ||
+      name === 'K' ||
+      name === 'E'
+
     const groundedSomewhere = needsGround.some((g) =>
       peersOf(inst.instanceId, g.name).some((pr) => {
         const other = partOf(pr.instanceId)
-        return !!other && terminalsFor(other).some((x) => x.name === pr.pin && x.role === 'groundIn')
+        return !!other && terminalsFor(other).some((x) => x.name === pr.pin && isGndTerm(x.name, x.role))
       }),
     )
 
@@ -193,7 +208,7 @@ function checkPower(): Issue[] {
       const groundPeers = peersOf(inst.instanceId, t.name).filter((pr) => {
         const other = partOf(pr.instanceId)
         if (!other) return false
-        return terminalsFor(other).some((x) => x.name === pr.pin && x.role === 'groundIn')
+        return terminalsFor(other).some((x) => x.name === pr.pin && isGndTerm(x.name, x.role))
       })
       if (!groundPeers.length) {
         out.push({

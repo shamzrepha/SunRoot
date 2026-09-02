@@ -316,15 +316,8 @@ onAuthChange(async (user) => {
 
   ensureDemoClassroomExists().catch(() => {})
 
-  // If a classroom workshop was active when the page was last open (see
-  // WorkshopContext.ts — it persists this), resume straight back into it
-  // instead of bouncing to the dashboard and making them navigate back in.
-  const resumingClassroom = getActiveClassroom()
-  if (resumingClassroom) {
-    const resumed = restoreForActiveClassroom()
-    if (resumed) postLoadingScreen = 'farm'
-    else setActiveClassroom(null) // stale reference with nothing to restore — don't fake a resume
-  }
+  // Always boot into the dashboard/portal first, never straight into the farm
+  postLoadingScreen = 'dashboard'
   startAutosave()
 
   goTo('loading')

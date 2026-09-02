@@ -21,9 +21,9 @@
 // ---------------------------------------------------------------------------
 
 import { fullContext } from '../learning/ContextBuilder'
-
 import { currentMode } from '../learning/LearningModes'
 import { answerLocally } from './LocalAnswerer'
+import { session } from '../accounts/Session'
 
 /**
  * Where the serverless function lives. Hardcoded on purpose: a student should
@@ -140,23 +140,31 @@ export interface Turn {
  */
 function systemPrompt(): string {
   const mode = currentMode()
+  const profile = session.profile
+  const name = profile?.displayName ? profile.displayName.split(' ')[0] : 'student'
+  const style = profile?.learningStyle
+  let styleHint = ''
+  if (style) {
+    if (style.visual > 0.35) styleHint = 'Learner preference: VISUAL. Use spatial/layout mental models and describe diagrams.'
+    else if (style.kinesthetic > 0.35) styleHint = 'Learner preference: KINESTHETIC. Encourage practical experimentation, dragging components, and tuning numbers.'
+    else if (style.readingWriting > 0.35) styleHint = 'Learner preference: READING/WRITING. Reference concise datasheet facts and clear terminology.'
+  }
+
   return [
-    'You are the field engineer in SunRoot, a browser simulation where a student designs a solar-powered irrigation system: choosing components, wiring them on a breadboard, programming control logic in Blockly, and deploying to a live farm digital twin.',
+    `You are the friendly, encouraging field engineer and AI tutor in SunRoot, speaking to ${name}. SunRoot is a gamified cyber-physical STEM learning platform where students design, wire, code, and simulate solar-powered irrigation digital twins in-browser.`,
+    styleHint,
     '',
-    'EVERYTHING YOU CAN SEE RIGHT NOW:',
+    'EVERYTHING YOU CAN SEE RIGHT NOW ON THE STUDENT BENCH AND SIMULATION:',
     fullContext(),
     '',
     `TEACHING MODE: ${mode.label}. ${mode.blurb}`,
     modeInstruction(mode.id),
     '',
     'RULES:',
-    '- Answer using the state above. Name their actual components, pins, prices and readings.',
-    '- You can see which screen they are on. Advise for THAT screen: in the Tool Shed talk about what to buy and what it costs; on the bench talk about wires and pins; on the farm talk about what the telemetry is doing.',
-    '- If they ask what to buy, give a concrete costed list from the catalogue above and total it against their budget.',
-    '- Be brief. Two or three sentences unless they ask for detail.',
-    '- Never invent readings, part names or pin numbers that are not in the state above.',
-    '- If the state does not contain what you need, say so and tell them where to look.',
-    '- Plain prose. No markdown headers, no bullet lists unless they ask for steps.',
+    '- Answer using the state above. Name their actual components, pins, prices and live readings.',
+    '- Advise for the screen they are on (Tool Shed: parts/budget; Circuit Lab: wires/common ground/logic levels; Coding: Blockly control loops; Farm: battery/soil moisture telemetry).',
+    '- Be engaging, supportive, concise and pedagogically insightful. Two or three sentences unless they ask for detailed steps.',
+    '- Never invent readings or pin numbers not in the state above.',
   ]
     .filter(Boolean)
     .join('\n')

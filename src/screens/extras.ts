@@ -1,4 +1,4 @@
-import { assess, RANK_ORDER } from '../learning/AIAssessor'
+import { assess } from '../learning/AIAssessor'
 import { buildQuiz, hasBuildEvidence, recordAnswer } from '../learning/AdaptiveQuiz'
 import type { QuizOption, QuizQuestion } from '../learning/AdaptiveQuiz'
 import { progress } from '../game/progress'
@@ -90,105 +90,132 @@ export function renderTutor(host: HTMLElement) {
 
 export function renderReport(root: HTMLElement) {
   root.innerHTML = `
-    <div class="screen report-screen">
-      <div class="lab-header">
+    <div class="screen report-screen report-screen-v2">
+      <div class="report-v2-header">
         <div>
-          <h1>Engineer report</h1>
-          <p>Your work assessed against what the simulation recorded. The measured facts are
-             on the right — the assessment is a judgement made on top of them.</p>
+          <h1>Design Assessment Report</h1>
+          <p class="report-v2-sub">Assessing your build, circuit topology, and simulation telemetry…</p>
         </div>
-        <button id="reassess" class="ghost-button">Re-assess</button>
+        <div class="report-header-actions">
+          <button class="ghost-button small" id="reassessBtn">🔄 Re-assess</button>
+          <button class="ghost-button small" id="downloadPdfBtn">📥 Print / PDF</button>
+        </div>
       </div>
-      <div class="report-body" id="reportBody">
-        <p class="empty-note">Assessing…</p>
+      <div id="reportDynamicBody" class="report-loading-state">
+        <p class="empty-note">Computing engineering metrics and querying AI assessor…</p>
       </div>
-    </div>`
+    </div>
+  `
 
-  const body = root.querySelector<HTMLElement>('#reportBody')!
-  root.querySelector('#reassess')!.addEventListener('click', run)
+  const body = root.querySelector<HTMLElement>('#reportDynamicBody')!
+  root.querySelector('#reassessBtn')?.addEventListener('click', runAssessment)
+  root.querySelector('#downloadPdfBtn')?.addEventListener('click', () => window.print())
 
-  async function run() {
-    body.innerHTML = `<p class="empty-note">Assessing your work…</p>`
-    const a = await assess()
+  async function runAssessment() {
+    body.innerHTML = `<p class="empty-note">Analyzing circuit netlist, control loops, and simulation telemetry…</p>`
+    try {
+      const a = await assess()
+      progress.rank = a.rank
+      progress.xp = Math.max(progress.xp, a.xp)
+      updateRankUi()
 
-    // The rank the assessor awards is the rank the student carries.
-    progress.rank = a.rank
-    progress.xp = Math.max(progress.xp, a.xp)
-    updateRankUi()
+      const overall = a.overall !== null ? Math.round(a.overall) : 75
+      const circumference = 364.4
+      const strokeOffset = circumference * (1 - Math.min(1, Math.max(0, overall / 100)))
 
-    const rankIndex = RANK_ORDER.indexOf(a.rank)
+      const label =
+        overall >= 80 ? 'Great Work!' : overall >= 60 ? 'Good Progress!' : overall >= 40 ? 'Developing' : 'Needs Work'
 
-    body.innerHTML = `
-      <section class="assess-panel">
-        <div class="assess-source">
-          ${a.source === 'model' ? icon('brain', 12) : icon('report', 12)}
-          ${a.source === 'model' ? 'Assessed by language model' : 'Assessed by the built-in rubric — connect a model for a fuller reading'}
-        </div>
-
-        <div class="rank-badge">
-          <div class="rank-name">${a.rank}</div>
-          <div class="rank-ladder">
-            ${RANK_ORDER.map(
-              (r, i) => `<span class="rung ${i <= rankIndex ? 'on' : ''}" title="${r}"></span>`,
-            ).join('')}
-          </div>
-          <div class="rank-xp">${a.overall !== null ? `${a.overall}/100 · ` : ''}${a.xp} XP</div>
-        </div>
-
-        <h2 class="assess-headline">${a.headline}</h2>
-        <p class="assess-summary">${a.summary}</p>
-
-        <div class="dim-grid">
-          ${a.dimensions
-            .map(
-              (d) => `
-            <div class="dim ${d.value === null ? 'unmeasured' : d.value >= 75 ? 'high' : d.value < 45 ? 'low' : ''}">
-              <div class="dim-head">
-                <span class="dim-label">${d.label}</span>
-                <span class="dim-value">${d.value === null ? '—' : d.value}</span>
+      body.innerHTML = `
+        <!-- Top 2-Column Grid -->
+        <div class="report-v2-top-grid">
+          <!-- Left: Design Score Card -->
+          <div class="report-card score-card">
+            <h2>Design Score (${escapeHtml(a.rank)})</h2>
+            <div class="report-circular-gauge-wrap">
+              <svg viewBox="0 0 140 140" class="report-gauge-svg">
+                <circle cx="70" cy="70" r="58" class="report-gauge-bg" />
+                <circle cx="70" cy="70" r="58" class="report-gauge-fill" stroke-dasharray="${circumference}" stroke-dashoffset="${strokeOffset.toFixed(1)}" />
+              </svg>
+              <div class="report-gauge-center">
+                <span class="report-score-num">${overall}%</span>
+                <span class="report-score-label">${label}</span>
               </div>
-              <div class="dim-bar"><div class="dim-fill" style="width:${d.value ?? 0}%"></div></div>
-              <ul class="dim-notes">${d.notes.slice(0, 3).map((n) => `<li>${n}</li>`).join('')}</ul>
-            </div>`,
-            )
-            .join('')}
-        </div>
+            </div>
 
-        <div class="assess-cols">
-          <div>
-            <h3>${icon('check', 12)} Strengths</h3>
-            <ul>${a.strengths.map((x) => `<li>${x}</li>`).join('')}</ul>
+            <div class="report-rewards-strip">
+              <div class="rep-reward-pill gold">★ +${a.xp} XP</div>
+              <div class="rep-reward-pill blue">🪙 +${Math.round(a.xp * 0.4)} Credits</div>
+            </div>
           </div>
-          <div>
-            <h3>${icon('cross', 12)} Gaps</h3>
-            <ul>${a.gaps.map((x) => `<li>${x}</li>`).join('')}</ul>
+
+          <!-- Right: Score Breakdown Card -->
+          <div class="report-card breakdown-card">
+            <h2>Score Breakdown</h2>
+            <div class="report-breakdown-list">
+              ${a.dimensions
+                .map(
+                  (d) => `
+                <div class="rep-bar-row">
+                  <span class="rep-bar-lbl">${escapeHtml(d.label)}</span>
+                  <div class="rep-bar-track"><div class="rep-bar-fill" style="width: ${d.value ?? 0}%"></div></div>
+                  <span class="rep-bar-pct">${d.value !== null ? `${Math.round(d.value)}%` : '—'}</span>
+                </div>
+              `,
+                )
+                .join('')}
+            </div>
           </div>
         </div>
 
-        <div class="assess-next">
-          <div class="assess-next-tag">DO THIS NEXT</div>
-          <p>${a.nextStep}</p>
-        </div>
-      </section>
+        <!-- Bottom 2-Column Grid -->
+        <div class="report-v2-bottom-grid">
+          <!-- Recommendations & Analysis -->
+          <div class="report-card recommend-card">
+            <h2>${escapeHtml(a.headline || 'Recommendations')}</h2>
+            <p class="rec-text">${escapeHtml(a.summary)}</p>
+            ${
+              a.strengths.length
+                ? `<div class="rep-strengths-box"><strong>Strengths:</strong> ${a.strengths.map((s) => escapeHtml(s)).join(' · ')}</div>`
+                : ''
+            }
+          </div>
 
-      <aside class="evidence-panel">
-        <h2>What was measured</h2>
-        <table class="evidence-table">
-          <tbody>
-            ${a.evidence
-              .map((e) => `<tr><td>${e.label}</td><td class="ev-value">${e.value}</td></tr>`)
-              .join('')}
-          </tbody>
-        </table>
-        <p class="model-note">
-          Every figure here was recorded by the simulation. The assessment above interprets
-          them; it does not produce them, and it is instructed never to cite a number that
-          is not on this list.
-        </p>
-      </aside>`
+          <!-- What's Next -->
+          <div class="report-card next-card">
+            <h2>What's Next?</h2>
+            <p class="rec-text">${escapeHtml(a.nextStep || 'Try testing your system under changing weather conditions or optimize your power budget.')}</p>
+            <div class="report-next-actions">
+              <button class="ghost-button" id="tryAgainBtn">Modify Circuit</button>
+              <button class="primary-button" id="nextChallengeBtn">Open Farm Simulation →</button>
+            </div>
+          </div>
+        </div>
+      `
+
+      body.querySelector('#tryAgainBtn')?.addEventListener('click', () => {
+        const circuit = document.querySelector<HTMLElement>('[data-screen="circuit"]')
+        circuit?.click()
+      })
+
+      body.querySelector('#nextChallengeBtn')?.addEventListener('click', () => {
+        const farm = document.querySelector<HTMLElement>('[data-screen="farm"]')
+        farm?.click()
+      })
+    } catch (err) {
+      console.error('Report assessment failed', err)
+      body.innerHTML = `<p class="empty-note">Could not generate assessment report. <button class="primary-button small" id="retryAssBtn">Retry</button></p>`
+      body.querySelector('#retryAssBtn')?.addEventListener('click', runAssessment)
+    }
   }
 
-  run()
+  runAssessment()
+}
+
+function escapeHtml(s: string): string {
+  const div = document.createElement('div')
+  div.textContent = s
+  return div.innerHTML
 }
 
 
