@@ -80,8 +80,8 @@ export async function renderAdmin(root: HTMLElement) {
       const needle = q.trim().toLowerCase()
       const matchesSearch =
         !needle ||
-        u.displayName.toLowerCase().includes(needle) ||
-        u.email.toLowerCase().includes(needle) ||
+        (u.displayName ?? '').toLowerCase().includes(needle) ||
+        (u.email ?? '').toLowerCase().includes(needle) ||
         (u.studentTag ?? '').toLowerCase().includes(needle)
       return matchesRole && matchesSearch
     })

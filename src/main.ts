@@ -314,7 +314,7 @@ onAuthChange(async (user) => {
     return
   }
 
-  ensureDemoClassroomExists().catch((err) => console.error('SunRoot: seed check failed', err))
+  ensureDemoClassroomExists().catch(() => {})
 
   // If a classroom workshop was active when the page was last open (see
   // WorkshopContext.ts — it persists this), resume straight back into it

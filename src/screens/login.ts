@@ -22,14 +22,76 @@ export function renderLogin(root: HTMLElement, onAuthenticated: () => void) {
 
   function paintHero() {
     return `
-      <div class="login-hero">
-        ${heroIllustration()}
-        <div class="login-hero-copy">
-          <div class="login-hero-mark">
-            <svg viewBox="0 0 24 24" width="30" height="30"><circle cx="12" cy="9" r="4.5" fill="#F5B942"/><path d="M12 21c0-5 2-8 7-9-5-1-7-4-7-9-0 5-2 8-7 9 5 1 7 4 7 9z" fill="#4FD67A"/></svg>
-            <span>SunRoot</span>
+      <div class="login-hero landing-hero">
+        <div class="landing-content">
+          <div class="landing-brand">
+            <div class="landing-logo">
+              <svg viewBox="0 0 24 24" width="34" height="34">
+                <circle cx="12" cy="9" r="4.5" fill="#F5B942" />
+                <path d="M12 21c0-5 2-8 7-9-5-1-7-4-7-9-0 5-2 8-7 9 5 1 7 4 7 9z" fill="#4FD67A" />
+              </svg>
+              <span>SunRoot</span>
+            </div>
+            <span class="landing-badge">Interactive STEM &amp; AgTech</span>
           </div>
-          <p>Build it. Understand it. Grow.</p>
+
+          <div class="landing-hero-text">
+            <h2>Build smart farms.<br>Master real electronics.</h2>
+            <p>
+              An interactive digital-twin learning platform where you wire virtual circuits, write block-based automation code, and cultivate thriving smart agriculture systems in real time.
+            </p>
+          </div>
+
+          <div class="landing-feature-grid">
+            <div class="landing-feature-item">
+              <div class="landing-feature-icon">⚡</div>
+              <div class="landing-feature-body">
+                <h4>Circuit &amp; Sensor Lab</h4>
+                <p>Wire breadboards, solar panels, soil moisture sensors, relays, and water pumps with live circuit simulation.</p>
+              </div>
+            </div>
+
+            <div class="landing-feature-item">
+              <div class="landing-feature-icon">💻</div>
+              <div class="landing-feature-body">
+                <h4>Block-Based Coding</h4>
+                <p>Program dynamic logic with custom sensor-reading and actuator blocks that react to changing conditions.</p>
+              </div>
+            </div>
+
+            <div class="landing-feature-item">
+              <div class="landing-feature-icon">🌱</div>
+              <div class="landing-feature-body">
+                <h4>Digital Twin Farm</h4>
+                <p>Watch crops grow based on real physics, moisture diffusion, sunlight cycles, and automated irrigation.</p>
+              </div>
+            </div>
+
+            <div class="landing-feature-item">
+              <div class="landing-feature-icon">🧠</div>
+              <div class="landing-feature-body">
+                <h4>AI Tutor &amp; Mastery Engine</h4>
+                <p>Contextual learning guidance, automatic flashcards &amp; quizzes, and personalized concept tracking.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="landing-highlights">
+            <div class="landing-highlight">
+              <strong>20+</strong>
+              <span>Hardware Parts</span>
+            </div>
+            <div class="landing-highlight-divider"></div>
+            <div class="landing-highlight">
+              <strong>Real-Time</strong>
+              <span>Simulation</span>
+            </div>
+            <div class="landing-highlight-divider"></div>
+            <div class="landing-highlight">
+              <strong>Team</strong>
+              <span>Workshops</span>
+            </div>
+          </div>
         </div>
       </div>
     `
@@ -178,30 +240,4 @@ export function renderLogin(root: HTMLElement, onAuthenticated: () => void) {
   }
 
   paint()
-}
-
-function heroIllustration(): string {
-  return `
-    <svg viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice" class="login-hero-svg">
-      <defs>
-        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#F5B942" />
-          <stop offset="45%" stop-color="#C97A4A" />
-          <stop offset="100%" stop-color="#12201A" />
-        </linearGradient>
-      </defs>
-      <rect width="400" height="700" fill="url(#skyGrad)" />
-      <circle cx="300" cy="150" r="60" fill="#FDE4A8" opacity="0.9" />
-      <rect y="430" width="400" height="270" fill="#12201A" />
-      <g opacity="0.9">
-        <rect x="40" y="360" width="130" height="80" rx="4" fill="#1B3A2C" stroke="#4FD67A" stroke-width="2" transform="skewY(-4)" />
-        <rect x="200" y="380" width="130" height="80" rx="4" fill="#1B3A2C" stroke="#4FD67A" stroke-width="2" transform="skewY(-4)" />
-      </g>
-      <g fill="#2FA360">
-        <rect x="30" y="470" width="10" height="90" /><rect x="70" y="470" width="10" height="90" /><rect x="110" y="470" width="10" height="90" />
-        <rect x="150" y="470" width="10" height="90" /><rect x="190" y="470" width="10" height="90" /><rect x="230" y="470" width="10" height="90" />
-        <rect x="270" y="470" width="10" height="90" /><rect x="310" y="470" width="10" height="90" /><rect x="350" y="470" width="10" height="90" />
-      </g>
-    </svg>
-  `
 }

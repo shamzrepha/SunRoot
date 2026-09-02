@@ -22,105 +22,124 @@ export function renderDashboard(
     // one, and never get cleared on leaving a workshop. Reading the demo
     // class's real Firestore snapshot instead means what's shown here is
     // honest and always tied to a specific, known class.
-    isTeacher ? Promise.resolve(null) : fetchProgressSnapshot(DEMO_CLASSROOM_ID, profile.uid),
-  ]).then(([classrooms, demoProgress]) => {
-    const engaged = demoProgress ? Object.entries(demoProgress.conceptMastery).filter(([, c]) => c.engaged) : []
-    const strengths = [...engaged].sort((a, b) => b[1].mastery - a[1].mastery).filter(([, c]) => c.mastery >= 0.6).slice(0, 3)
-    const focusAreas = [...engaged].sort((a, b) => a[1].mastery - b[1].mastery).filter(([, c]) => c.mastery < 0.6).slice(0, 3)
-    const xp = demoProgress?.xp ?? 0
-    const rank = demoProgress?.rank ?? 'Apprentice'
-    const overallMastery = demoProgress?.overallMastery ?? 0
-    const label = (id: string) => CONCEPT_BY_ID.get(id as any)?.label ?? id
+    isTeacher ? Promise.resolve(null) : fetchProgressSnapshot(DEMO_CLASSROOM_ID, profile.uid).catch(() => null),
+  ])
+    .then(([classrooms, demoProgress]) => {
+      const engaged = demoProgress?.conceptMastery ? Object.entries(demoProgress.conceptMastery).filter(([, c]) => c.engaged) : []
+      const strengths = [...engaged].sort((a, b) => b[1].mastery - a[1].mastery).filter(([, c]) => c.mastery >= 0.6).slice(0, 3)
+      const focusAreas = [...engaged].sort((a, b) => a[1].mastery - b[1].mastery).filter(([, c]) => c.mastery < 0.6).slice(0, 3)
+      const xp = demoProgress?.xp ?? 0
+      const rank = demoProgress?.rank ?? 'Apprentice'
+      const overallMastery = demoProgress?.overallMastery ?? 0
+      const label = (id: string) => CONCEPT_BY_ID.get(id as any)?.label ?? id
+      const firstName = (profile.displayName || 'Friend').split(' ')[0]
 
-    root.innerHTML = `
-      <div class="screen dash-screen">
-        <div class="lab-header">
-          <div>
-            <h1>Welcome back, ${escapeHtml(profile.displayName.split(' ')[0])}</h1>
-            <p>${isTeacher ? 'Here\u2019s how your classes are doing.' : 'Ready to build something amazing today?'}</p>
+      root.innerHTML = `
+        <div class="screen dash-screen">
+          <div class="lab-header">
+            <div>
+              <h1>Welcome back, ${escapeHtml(firstName)}</h1>
+              <p>${isTeacher ? 'Here\u2019s how your classes are doing.' : 'Ready to build something amazing today?'}</p>
+            </div>
+            ${profile.studentTag ? `<div class="class-stat"><div class="class-figure tag-figure">${profile.studentTag}</div><div class="class-caption">your tag</div></div>` : ''}
           </div>
-          ${profile.studentTag ? `<div class="class-stat"><div class="class-figure tag-figure">${profile.studentTag}</div><div class="class-caption">your tag</div></div>` : ''}
-        </div>
 
-        ${profile.isAdmin ? `<div class="admin-banner">You have admin access. <button class="link-button" id="toAdminBtn">Open the admin dashboard \u2192</button></div>` : ''}
+          ${profile.isAdmin ? `<div class="admin-banner">You have admin access. <button class="link-button" id="toAdminBtn">Open the admin dashboard \u2192</button></div>` : ''}
 
-        <div class="stat-row">
+          <div class="stat-row">
+            ${
+              !isTeacher
+                ? `
+                  <div class="stat-tile">
+                    <div class="stat-icon stat-icon-gold">${starIcon()}</div>
+                    <div><div class="stat-value">${xp}</div><div class="stat-label">Total XP</div></div>
+                  </div>
+                  <div class="stat-tile">
+                    <div class="stat-icon stat-icon-orange">${boltIcon()}</div>
+                    <div><div class="stat-value">${escapeHtml(rank)}</div><div class="stat-label">Current rank</div></div>
+                  </div>
+                  <div class="stat-tile">
+                    <div class="stat-icon stat-icon-green">${checkIcon()}</div>
+                    <div><div class="stat-value">${Math.round(overallMastery * 100)}%</div><div class="stat-label">Overall mastery</div></div>
+                  </div>
+                `
+                : ''
+            }
+            <div class="stat-tile">
+              <div class="stat-icon stat-icon-blue">${bookIcon()}</div>
+              <div><div class="stat-value">${classrooms.length}</div><div class="stat-label">${isTeacher ? 'Classes teaching' : 'Classes enrolled'}</div></div>
+            </div>
+          </div>
+
           ${
             !isTeacher
-              ? `
-                <div class="stat-tile">
-                  <div class="stat-icon stat-icon-gold">${starIcon()}</div>
-                  <div><div class="stat-value">${xp}</div><div class="stat-label">Total XP</div></div>
-                </div>
-                <div class="stat-tile">
-                  <div class="stat-icon stat-icon-orange">${boltIcon()}</div>
-                  <div><div class="stat-value">${escapeHtml(rank)}</div><div class="stat-label">Current rank</div></div>
-                </div>
-                <div class="stat-tile">
-                  <div class="stat-icon stat-icon-green">${checkIcon()}</div>
-                  <div><div class="stat-value">${Math.round(overallMastery * 100)}%</div><div class="stat-label">Overall mastery</div></div>
-                </div>
-              `
-              : ''
-          }
-          <div class="stat-tile">
-            <div class="stat-icon stat-icon-blue">${bookIcon()}</div>
-            <div><div class="stat-value">${classrooms.length}</div><div class="stat-label">${isTeacher ? 'Classes teaching' : 'Classes enrolled'}</div></div>
-          </div>
-        </div>
+              ? `<div class="dash-two-col">
+                  <div class="class-panel continue-card">
+                    <h2>Continue learning</h2>
+                    <div class="continue-thumb" id="continueThumb" role="button" tabindex="0">${farmThumb()}</div>
+                    <div class="continue-title">SunRoot Original</div>
+                    <div class="continue-sub">Solar + Irrigation Systems</div>
+                    <div class="cb-track continue-track"><div class="cb-fill high" style="width:${Math.round(overallMastery * 100)}%"></div></div>
+                    <div class="continue-pct">${Math.round(overallMastery * 100)}%</div>
+                    <button class="primary-button" id="toWorkshopBtn" style="width:100%;margin-top:12px">Open Workshop \u2192</button>
+                  </div>
 
-        ${
-          !isTeacher
-            ? `<div class="dash-two-col">
-                <div class="class-panel continue-card">
-                  <h2>Continue learning</h2>
-                  <div class="continue-thumb" id="continueThumb" role="button" tabindex="0">${farmThumb()}</div>
-                  <div class="continue-title">SunRoot Original</div>
-                  <div class="continue-sub">Solar + Irrigation Systems</div>
-                  <div class="cb-track continue-track"><div class="cb-fill high" style="width:${Math.round(overallMastery * 100)}%"></div></div>
-                  <div class="continue-pct">${Math.round(overallMastery * 100)}%</div>
-                  <button class="primary-button" id="toWorkshopBtn" style="width:100%;margin-top:12px">Open Workshop \u2192</button>
-                </div>
-
-                <div class="class-panel">
-                  <h2>Your progress overview</h2>
-                  ${radarChart(engaged.length ? engaged : sampleConcepts())}
-                  <div class="progress-lists">
-                    <div>
-                      <div class="progress-list-title strengths-title">Strengths</div>
-                      ${strengths.length ? strengths.map(([id]) => `<div class="progress-list-row"><span class="dot dot-green"></span>${escapeHtml(label(id))}</div>`).join('') : `<p class="empty-note">None yet</p>`}
-                    </div>
-                    <div>
-                      <div class="progress-list-title focus-title">Focus areas</div>
-                      ${focusAreas.length ? focusAreas.map(([id]) => `<div class="progress-list-row"><span class="dot dot-gold"></span>${escapeHtml(label(id))}</div>`).join('') : `<p class="empty-note">None yet</p>`}
+                  <div class="class-panel">
+                    <h2>Your progress overview</h2>
+                    ${radarChart(engaged.length ? engaged : sampleConcepts())}
+                    <div class="progress-lists">
+                      <div>
+                        <div class="progress-list-title strengths-title">Strengths</div>
+                        ${strengths.length ? strengths.map(([id]) => `<div class="progress-list-row"><span class="dot dot-green"></span>${escapeHtml(label(id))}</div>`).join('') : `<p class="empty-note">None yet</p>`}
+                      </div>
+                      <div>
+                        <div class="progress-list-title focus-title">Focus areas</div>
+                        ${focusAreas.length ? focusAreas.map(([id]) => `<div class="progress-list-row"><span class="dot dot-gold"></span>${escapeHtml(label(id))}</div>`).join('') : `<p class="empty-note">None yet</p>`}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>`
-            : `<div class="class-panel">
-                <h2>Getting started</h2>
-                <p>Head to My Classes to create a class, invite students by their tag, and set up teams.</p>
-              </div>`
-        }
+                </div>`
+              : `<div class="class-panel">
+                  <h2>Getting started</h2>
+                  <p>Head to My Classes to create a class, invite students by their tag, and set up teams.</p>
+                </div>`
+          }
 
-        <div class="dash-actions">
-          <button class="primary-button" id="toClasses">My Classes</button>
-          ${!isTeacher ? `<button class="ghost-button" id="toFind">Find a Class</button>` : ''}
-          <button class="ghost-button" id="toLogout">Log out</button>
+          <div class="dash-actions">
+            <button class="primary-button" id="toClasses">My Classes</button>
+            ${!isTeacher ? `<button class="ghost-button" id="toFind">Find a Class</button>` : ''}
+            <button class="ghost-button" id="toLogout">Log out</button>
+          </div>
         </div>
-      </div>
-    `
+      `
 
-    root.querySelector('#toClasses')?.addEventListener('click', nav.toClasses)
-    root.querySelector('#toFind')?.addEventListener('click', nav.toFindClass)
-    root.querySelector('#toLogout')?.addEventListener('click', nav.onLogout)
-    root.querySelector('#toAdminBtn')?.addEventListener('click', nav.toAdmin)
-    root.querySelector('#toWorkshopBtn')?.addEventListener('click', nav.toDemoWorkshop)
-    root.querySelector('#continueThumb')?.addEventListener('click', nav.toDemoWorkshop)
-    root.querySelector<HTMLElement>('#continueThumb')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') nav.toDemoWorkshop()
+      root.querySelector('#toClasses')?.addEventListener('click', nav.toClasses)
+      root.querySelector('#toFind')?.addEventListener('click', nav.toFindClass)
+      root.querySelector('#toLogout')?.addEventListener('click', nav.onLogout)
+      root.querySelector('#toAdminBtn')?.addEventListener('click', nav.toAdmin)
+      root.querySelector('#toWorkshopBtn')?.addEventListener('click', nav.toDemoWorkshop)
+      root.querySelector('#continueThumb')?.addEventListener('click', nav.toDemoWorkshop)
+      root.querySelector<HTMLElement>('#continueThumb')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') nav.toDemoWorkshop()
+      })
     })
-  })
+    .catch((err) => {
+      console.error('SunRoot: dashboard load failed', err)
+      root.innerHTML = `
+        <div class="screen dash-screen">
+          <div class="class-panel">
+            <h2>Couldn\u2019t load your dashboard</h2>
+            <p class="empty-note">Something went wrong reaching the database. Please try again.</p>
+            <div class="dash-actions" style="margin-top:16px">
+              <button class="primary-button" id="retryDashBtn">Try again</button>
+              <button class="ghost-button" id="toLogout">Log out</button>
+            </div>
+          </div>
+        </div>
+      `
+      root.querySelector('#retryDashBtn')?.addEventListener('click', () => renderDashboard(root, nav))
+      root.querySelector('#toLogout')?.addEventListener('click', nav.onLogout)
+    })
 }
 
 /** Falls back to the first six concepts at zero mastery so the radar always renders a shape, even before any activity. */

@@ -1,6 +1,7 @@
 import { session, refreshProfile } from '../accounts/Session'
 import {
   listClassroomsForUser,
+  getClassroom,
   listPendingInvites,
   respondToInvite,
   createClassroom,
@@ -31,8 +32,8 @@ const CLASS_ICON_COLORS = [
   { bg: 'rgba(180,140,230,0.14)', fg: '#b48ce6' },
 ]
 
-function topicIcon(topic: string, color: string): string {
-  const t = topic.toLowerCase()
+function topicIcon(topic: string | undefined | null, color: string): string {
+  const t = (topic || '').toLowerCase()
   if (t.includes('solar') || t.includes('irrigation')) {
     return `<svg viewBox="0 0 24 24" width="20" height="20" fill="${color}"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="${color}" stroke-width="1.8" stroke-linecap="round"/></svg>`
   }
@@ -166,12 +167,16 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
                     const p = myProgressByClassroom[c.id]
                     const pct = p ? Math.round(p.overallMastery * 100) : 0
                     const swatch = CLASS_ICON_COLORS[i % CLASS_ICON_COLORS.length]
+                    const topicStr = c.topic || 'General'
+                    const nameStr = c.name || 'Untitled Class'
+                    const teacherStr = c.teacherName || 'Instructor'
+                    const studentCount = c.studentIds?.length ?? 0
                     return `<button class="class-card-row" data-classroom="${c.id}">
-                      <div class="class-card-icon" style="background:${swatch.bg}">${topicIcon(c.topic, swatch.fg)}</div>
+                      <div class="class-card-icon" style="background:${swatch.bg}">${topicIcon(topicStr, swatch.fg)}</div>
                       <div class="class-card-mid">
-                        <div class="class-card-name">${escapeHtml(c.name)}</div>
-                        <div class="class-card-sub">${escapeHtml(c.topic)}</div>
-                        <div class="class-card-by">by ${escapeHtml(c.teacherName)}</div>
+                        <div class="class-card-name">${escapeHtml(nameStr)}</div>
+                        <div class="class-card-sub">${escapeHtml(topicStr)}</div>
+                        <div class="class-card-by">by ${escapeHtml(teacherStr)}</div>
                         ${c.isDemo ? `<span class="tag-badge">Demo Class</span> <span class="tag-badge tag-badge-muted">Pinned</span>` : ''}
                       </div>
                       ${
@@ -182,12 +187,12 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
                               <div class="class-card-stats">
                                 <span><strong>${pct}%</strong> Mastery</span>
                                 <span><strong>${p?.xp ?? 0}</strong> XP</span>
-                                <span><strong>${c.studentIds.length}</strong> Students</span>
+                                <span><strong>${studentCount}</strong> Students</span>
                               </div>
                             </div>`
                           : `<div class="class-card-progress">
                               <div class="class-card-stats">
-                                <span><strong>${c.studentIds.length}</strong> Students</span>
+                                <span><strong>${studentCount}</strong> Students</span>
                               </div>
                             </div>`
                       }
@@ -297,27 +302,61 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
 }
 
 async function renderDetail(root: HTMLElement, profile: UserProfile, classroomId: string, nav: ClassNav) {
-  root.innerHTML = `<div class="screen"><p class="empty-note">Loading\u2026</p></div>`
+  root.innerHTML = `<div class="screen"><p class="empty-note">Loading class details\u2026</p></div>`
 
-  const classrooms = await listClassroomsForUser(profile)
-  const classroom = classrooms.find((c) => c.id === classroomId)
-  if (!classroom) {
-    root.innerHTML = `<div class="screen"><p class="empty-note">Class not found.</p></div>`
-    return
+  try {
+    const classroom = await getClassroom(classroomId)
+    if (!classroom) {
+      root.innerHTML = `
+        <div class="screen">
+          <div class="class-panel">
+            <h2>Class not found</h2>
+            <p class="empty-note">This class may have been deleted or the link is invalid.</p>
+            <button class="ghost-button" id="backToClassesBtn">\u2190 Back to My Classes</button>
+          </div>
+        </div>
+      `
+      root.querySelector('#backToClassesBtn')?.addEventListener('click', () => renderClasses(root, nav))
+      return
+    }
+
+    const studentIds = classroom.studentIds ?? []
+    const [roster, teams, studySets] = await Promise.all([
+      fetchUsersByIds(studentIds),
+      listTeamsForClassroom(classroomId).catch(() => [] as Team[]),
+      listStudySetsForClassroom(classroomId).catch(() => [] as StudySet[]),
+    ])
+
+    const isOwner = profile.role === 'teacher' && classroom.teacherId === profile.uid
+    // Scoped to THIS classroom — the same student in a different class of
+    // yours (or someone else's) gets a completely separate snapshot.
+    let progressByUid: Record<string, ProgressSnapshot> = {}
+    if (isOwner && studentIds.length > 0) {
+      try {
+        progressByUid = await fetchClassroomProgress(classroom.id, studentIds)
+      } catch (e) {
+        console.warn('Could not load classroom progress:', e)
+      }
+    }
+
+    paintDetail(root, profile, classroom, roster, teams, isOwner, nav, progressByUid, studySets)
+  } catch (err) {
+    console.error('SunRoot: failed to load class detail', err)
+    root.innerHTML = `
+      <div class="screen">
+        <div class="class-panel">
+          <h2>Couldn\u2019t load this class</h2>
+          <p class="empty-note">Something went wrong reaching the database. This is usually temporary.</p>
+          <div class="inline-form">
+            <button class="primary-button" id="retryDetailBtn">Try again</button>
+            <button class="ghost-button" id="backToClassesBtn">Back to My Classes</button>
+          </div>
+        </div>
+      </div>
+    `
+    root.querySelector('#retryDetailBtn')?.addEventListener('click', () => renderDetail(root, profile, classroomId, nav))
+    root.querySelector('#backToClassesBtn')?.addEventListener('click', () => renderClasses(root, nav))
   }
-
-  const [roster, teams, studySets] = await Promise.all([
-    fetchUsersByIds(classroom.studentIds),
-    listTeamsForClassroom(classroomId),
-    listStudySetsForClassroom(classroomId),
-  ])
-
-  const isOwner = profile.role === 'teacher' && classroom.teacherId === profile.uid
-  // Scoped to THIS classroom — the same student in a different class of
-  // yours (or someone else's) gets a completely separate snapshot.
-  const progressByUid = isOwner ? await fetchClassroomProgress(classroom.id, classroom.studentIds) : {}
-
-  paintDetail(root, profile, classroom, roster, teams, isOwner, nav, progressByUid, studySets)
 }
 
 interface ClassAnalytics {
@@ -672,7 +711,7 @@ function paintDetail(
 
       const res = await generateStudentRecommendation(summary)
       btn.disabled = false
-      btn.textContent = `Regenerate recommendation for ${student.displayName.split(' ')[0]}`
+      btn.textContent = `Regenerate recommendation for ${(student.displayName || 'Student').split(' ')[0]}`
       resultEl.innerHTML = res.text
         ? `<div class="ai-insight-box">${escapeHtml(res.text).replace(/\n/g, '<br>')}</div>`
         : `<p class="empty-note">Couldn\u2019t generate a recommendation: ${escapeHtml(res.error ?? 'unknown error')}</p>`
@@ -869,7 +908,7 @@ function studentDetailHtml(student: UserProfile, p: ProgressSnapshot): string {
         <div class="teach-card"><div class="teach-tag">DAYS SURVIVED</div><div class="class-figure">${p.daysSurvived}</div></div>
       </div>
       ${engaged.length ? conceptRows : `<p class="empty-note">No concept activity yet.</p>`}
-      <button class="ghost-button student-ai-btn" data-uid="${student.uid}" style="margin-top:10px">Generate AI recommendation for ${escapeHtml(student.displayName.split(' ')[0])}</button>
+      <button class="ghost-button student-ai-btn" data-uid="${student.uid}" style="margin-top:10px">Generate AI recommendation for ${escapeHtml((student.displayName || 'Student').split(' ')[0])}</button>
       <div id="studentAIResult-${student.uid}"></div>
     </div>
   `
