@@ -28,20 +28,27 @@ export function setSidebarTheme(theme: 'campus' | 'workshop') {
 
 let onNavigate: ((s: Screen) => void) | null = null
 
+export function setTopbarTitle(title: string) {
+  const el = document.querySelector<HTMLElement>('#topbarTitle')
+  if (el) el.textContent = title
+}
+
 export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
   onNavigate = navigate
   root.innerHTML = `
-    <div class="shell">
-      <aside class="sidebar">
+    <div class="shell" id="shellRoot">
+      <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+      <aside class="sidebar" id="sidebarRail">
         <div class="brand">
           <div class="brand-mark">
             <svg viewBox="0 0 24 24" width="26" height="26">
+              <circle cx="12" cy="8" r="4" fill="#F5B942" />
               <path d="M12 21c0-5 2-8 7-9-5-1-7-4-7-9-0 5-2 8-7 9 5 1 7 4 7 9z" fill="#4fd67a"/>
             </svg>
           </div>
           <div>
             <div class="brand-name">SUNROOT</div>
-            <div class="brand-tag">Learn it. Build it. Watch it grow.</div>
+            <div class="brand-tag">Cyber-Physical AgTech Twin</div>
           </div>
         </div>
 
@@ -50,10 +57,10 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
         <div class="rank-card">
           <div class="rank-avatar">
             <svg viewBox="0 0 24 24" width="22" height="22">
-              <rect x="5" y="7" width="14" height="11" rx="3" fill="#7fd8ff"/>
+              <rect x="5" y="7" width="14" height="11" rx="3" fill="#4fd67a"/>
               <circle cx="9.5" cy="12" r="1.6" fill="#0b1a24"/>
               <circle cx="14.5" cy="12" r="1.6" fill="#0b1a24"/>
-              <rect x="11" y="3" width="2" height="4" fill="#7fd8ff"/>
+              <rect x="11" y="3" width="2" height="4" fill="#4fd67a"/>
             </svg>
           </div>
           <div class="rank-info">
@@ -73,13 +80,44 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
         <button class="profile-chip" id="profileChip">
           <span class="profile-avatar" id="profileAvatar">?</span>
           <span class="profile-chip-info">
-            <span class="profile-chip-name" id="profileChipName">\u2026</span>
+            <span class="profile-chip-name" id="profileChipName">Account</span>
             <span class="profile-chip-role" id="profileChipRole"></span>
           </span>
         </button>
       </aside>
 
       <div class="main-col">
+        <header class="shell-topbar">
+          <div class="shell-topbar-left">
+            <button class="menu-toggle-btn" id="menuToggleBtn" aria-label="Toggle navigation drawer">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <div class="shell-breadcrumb">
+              <span class="shell-breadcrumb-brand">SunRoot</span>
+              <span class="shell-breadcrumb-sep">/</span>
+              <span class="shell-breadcrumb-page" id="topbarTitle">Dashboard</span>
+            </div>
+          </div>
+          <div class="shell-topbar-right">
+            <div class="shell-streak-pill" title="Daily Engineering Streak">
+              <span class="streak-icon">🔥</span>
+              <span class="streak-label">3-Day Streak</span>
+            </div>
+            <div class="topbar-controls">
+              <button class="topbar-icon-btn" id="topbarSoundBtn" title="Toggle Sound">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+              </button>
+              <button class="topbar-icon-btn" id="topbarVoiceBtn" title="Toggle AI Voice">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg>
+              </button>
+            </div>
+            <button class="topbar-profile-chip" id="topbarProfileChip" title="View Account Profile">
+              <span class="topbar-avatar" id="topbarAvatar">?</span>
+              <span class="topbar-name" id="topbarName">Profile</span>
+            </button>
+          </div>
+        </header>
+
         <div class="hud" id="hud"></div>
         <div class="view" id="view"></div>
       </div>
@@ -88,23 +126,70 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
     </div>
   `
 
-  root.querySelector<HTMLButtonElement>('#soundToggle')!.addEventListener('click', (e) => {
-    const btn = e.currentTarget as HTMLButtonElement
+  const shellRoot = root.querySelector<HTMLElement>('#shellRoot')
+  const backdrop = root.querySelector<HTMLElement>('#sidebarBackdrop')
+  const menuBtn = root.querySelector<HTMLButtonElement>('#menuToggleBtn')
+
+  menuBtn?.addEventListener('click', () => {
+    shellRoot?.classList.toggle('sidebar-open')
+  })
+
+  backdrop?.addEventListener('click', () => {
+    shellRoot?.classList.remove('sidebar-open')
+  })
+
+  const syncSoundButtons = () => {
+    const on = isSoundEnabled()
+    const sidebarBtn = root.querySelector<HTMLButtonElement>('#soundToggle')
+    const topbarBtn = root.querySelector<HTMLButtonElement>('#topbarSoundBtn')
+    if (sidebarBtn) sidebarBtn.textContent = `Sound: ${on ? 'On' : 'Off'}`
+    if (topbarBtn) topbarBtn.classList.toggle('active', on)
+  }
+
+  const syncVoiceButtons = () => {
+    const on = isSpeechEnabled()
+    const sidebarBtn = root.querySelector<HTMLButtonElement>('#voiceToggle')
+    const topbarBtn = root.querySelector<HTMLButtonElement>('#topbarVoiceBtn')
+    if (sidebarBtn) sidebarBtn.textContent = `Voice: ${on ? 'On' : 'Off'}`
+    if (topbarBtn) topbarBtn.classList.toggle('active', on)
+  }
+
+  root.querySelector<HTMLButtonElement>('#soundToggle')!.addEventListener('click', () => {
     setSoundEnabled(!isSoundEnabled())
-    btn.textContent = `Sound: ${isSoundEnabled() ? 'On' : 'Off'}`
+    syncSoundButtons()
     if (isSoundEnabled()) sfx.click()
   })
 
-  root.querySelector<HTMLButtonElement>('#voiceToggle')!.addEventListener('click', (e) => {
-    const btn = e.currentTarget as HTMLButtonElement
+  root.querySelector<HTMLButtonElement>('#topbarSoundBtn')?.addEventListener('click', () => {
+    setSoundEnabled(!isSoundEnabled())
+    syncSoundButtons()
+    if (isSoundEnabled()) sfx.click()
+  })
+
+  root.querySelector<HTMLButtonElement>('#voiceToggle')!.addEventListener('click', () => {
     setSpeechEnabled(!isSpeechEnabled())
-    btn.textContent = `Voice: ${isSpeechEnabled() ? 'On' : 'Off'}`
+    syncVoiceButtons()
+    if (!isSpeechEnabled()) hideAssistant()
+  })
+
+  root.querySelector<HTMLButtonElement>('#topbarVoiceBtn')?.addEventListener('click', () => {
+    setSpeechEnabled(!isSpeechEnabled())
+    syncVoiceButtons()
     if (!isSpeechEnabled()) hideAssistant()
   })
 
   root.querySelector<HTMLButtonElement>('#profileChip')!.addEventListener('click', () => {
+    shellRoot?.classList.remove('sidebar-open')
     onNavigate?.('profile')
   })
+
+  root.querySelector<HTMLButtonElement>('#topbarProfileChip')?.addEventListener('click', () => {
+    shellRoot?.classList.remove('sidebar-open')
+    onNavigate?.('profile')
+  })
+
+  syncSoundButtons()
+  syncVoiceButtons()
   updateProfileChip()
 
   return {
@@ -113,23 +198,33 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
   }
 }
 
-/** Refreshes the sidebar profile chip from the current session. Call after any change to the signed-in user's name. */
+/** Refreshes the sidebar and topbar profile chip from current session. */
 export function updateProfileChip() {
   const profile = session.profile
   const avatar = document.querySelector<HTMLElement>('#profileAvatar')
   const nameEl = document.querySelector<HTMLElement>('#profileChipName')
   const roleEl = document.querySelector<HTMLElement>('#profileChipRole')
-  if (!avatar || !nameEl || !roleEl) return
+  const topbarAvatar = document.querySelector<HTMLElement>('#topbarAvatar')
+  const topbarName = document.querySelector<HTMLElement>('#topbarName')
+
   if (!profile) {
-    nameEl.textContent = 'Account'
-    roleEl.textContent = ''
-    avatar.textContent = '?'
+    if (nameEl) nameEl.textContent = 'Account'
+    if (roleEl) roleEl.textContent = ''
+    if (avatar) avatar.textContent = '?'
+    if (topbarAvatar) topbarAvatar.textContent = '?'
+    if (topbarName) topbarName.textContent = 'Account'
     return
   }
+
   const parts = profile.displayName.trim().split(/\s+/)
-  avatar.textContent = ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
-  nameEl.textContent = profile.displayName
-  roleEl.textContent = profile.role.charAt(0).toUpperCase() + profile.role.slice(1)
+  const initials = ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+  const roleText = profile.role.charAt(0).toUpperCase() + profile.role.slice(1)
+
+  if (avatar) avatar.textContent = initials
+  if (nameEl) nameEl.textContent = profile.displayName
+  if (roleEl) roleEl.textContent = roleText
+  if (topbarAvatar) topbarAvatar.textContent = initials
+  if (topbarName) topbarName.textContent = parts[0] || profile.displayName
 }
 
 /**
@@ -228,7 +323,10 @@ export function renderNav(items: NavItem[], active: Screen) {
     .join('')
 
   nav.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((b) => {
-    b.addEventListener('click', () => onNavigate?.(b.dataset.nav as Screen))
+    b.addEventListener('click', () => {
+      document.querySelector<HTMLElement>('#shellRoot')?.classList.remove('sidebar-open')
+      onNavigate?.(b.dataset.nav as Screen)
+    })
   })
 }
 

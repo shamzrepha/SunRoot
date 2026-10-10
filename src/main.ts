@@ -12,7 +12,7 @@ import { mountAssistantDock } from './ai/AssistantDock'
 import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
 import { renderFarm, stopFarmLoop } from './screens/farm'
 import { renderTutor, renderReport, renderQuiz, renderRewards } from './screens/extras'
-import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, setSidebarTheme, setHudVisible, transitionView } from './game/shell'
+import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, setSidebarTheme, setHudVisible, transitionView, setTopbarTitle } from './game/shell'
 import type { NavItem } from './game/shell'
 import { farm } from './simulation/FarmState'
 
@@ -161,6 +161,29 @@ export function goTo(screen: Screen) {
   setSidebarTheme(WORKSHOP_SCREENS.includes(screen) ? 'workshop' : 'campus')
   setHudVisible(screen === 'farm')
 
+  const SCREEN_TITLES: Record<string, string> = {
+    dashboard: 'Dashboard',
+    classes: 'My Classes',
+    findClass: 'Find a Class',
+    leaderboard: 'Leaderboard',
+    messages: 'Messages',
+    admin: 'Admin Console',
+    profile: 'My Profile',
+    workshopHub: 'Workshop Overview',
+    farm: 'Digital Twin Farm',
+    shed: 'Tool Shed',
+    circuit: 'Circuit Lab',
+    coding: 'Coding Lab',
+    learning: 'Learning Model',
+    quiz: 'Learning Check',
+    report: 'Competency Report',
+    rewards: 'Rewards & Badges',
+    tutor: 'AI Engineering Tutor',
+    access: 'Accessibility',
+    studySetViewer: 'Study Sets & Flashcards',
+  }
+  setTopbarTitle(SCREEN_TITLES[screen] ?? 'Portal')
+
   transitionView((host) => {
     if (screen === 'workshopHub') {
       import('./screens/workshopHub').then(({ renderWorkshopHub }) => {
@@ -210,6 +233,47 @@ export function goTo(screen: Screen) {
         toAdmin: () => goTo('admin'),
         toDemoWorkshop: () => {
           setActiveClassroom(DEMO_CLASSROOM_ID)
+          setActiveTeam(null)
+          restoreForActiveClassroom()
+          goTo('workshopHub')
+        },
+        toCircuit: () => {
+          setActiveClassroom(DEMO_CLASSROOM_ID)
+          setActiveTeam(null)
+          restoreForActiveClassroom()
+          goTo('circuit')
+        },
+        toCoding: () => {
+          setActiveClassroom(DEMO_CLASSROOM_ID)
+          setActiveTeam(null)
+          restoreForActiveClassroom()
+          goTo('coding')
+        },
+        toFarm: () => {
+          setActiveClassroom(DEMO_CLASSROOM_ID)
+          setActiveTeam(null)
+          restoreForActiveClassroom()
+          goTo('farm')
+        },
+        toShed: () => {
+          setActiveClassroom(DEMO_CLASSROOM_ID)
+          setActiveTeam(null)
+          restoreForActiveClassroom()
+          goTo('shed')
+        },
+        toQuiz: () => {
+          setActiveClassroom(DEMO_CLASSROOM_ID)
+          setActiveTeam(null)
+          restoreForActiveClassroom()
+          goTo('quiz')
+        },
+        toLeaderboard: () => goTo('leaderboard'),
+        toMessages: () => goTo('messages'),
+        toProfile: () => goTo('profile'),
+        toStudySetViewer: () => goTo('studySetViewer'),
+        toTeacherAnalytics: () => goTo('teacher'),
+        toClassWorkshop: (classroomId: string) => {
+          setActiveClassroom(classroomId)
           setActiveTeam(null)
           restoreForActiveClassroom()
           goTo('workshopHub')
