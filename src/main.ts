@@ -57,6 +57,7 @@ function navItems(screen: Screen): NavItem[] {
 
   items.push({ id: 'dashboard' as Screen, label: 'Dashboard', icon: icon('class'), group: 'Account' })
   items.push({ id: 'classes' as Screen, label: 'My Classes', icon: icon('class'), group: 'Account' })
+  items.push({ id: 'studySetViewer' as Screen, label: 'NotebookLM Study Hub', icon: icon('brain'), group: 'Account' })
   items.push({ id: 'leaderboard' as Screen, label: 'Leaderboard', icon: icon('rewards'), group: 'Account' })
   items.push({ id: 'messages' as Screen, label: 'Messages', icon: icon('tutor'), group: 'Account' })
   if (role !== 'teacher') {

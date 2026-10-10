@@ -29,6 +29,13 @@ export interface UserProfile {
   isAdmin?: boolean
 }
 
+export type DigitalTwinType =
+  | 'agritech' // Solar PV & Soil Irrigation farm
+  | 'microgrid' // Renewable PV, Battery Storage & Inverter
+  | 'robotics' // Mechatronics & Actuator Controls
+  | 'hydraulics' // Water Treatment, Reservoirs & Valve Pressure
+  | 'iot_circuits' // Virtual Breadboard, ADC & Logic Gate Bench
+
 export interface Classroom {
   id: string
   teacherId: string
@@ -37,6 +44,7 @@ export interface Classroom {
   name: string
   description?: string
   topic: string
+  twinType?: DigitalTwinType
   visibility: 'public' | 'private'
   studentIds: string[]
   createdAt: number
@@ -235,10 +243,23 @@ export interface StudyQuizQuestion {
   explanation: string
 }
 
+export interface StudyDocumentSource {
+  id: string
+  name: string
+  content: string
+  uploadedAt: number
+}
+
+export interface AudioOverviewDialog {
+  speaker: 'Host (Alex)' | 'Expert (Dr. Sam)'
+  text: string
+  pitch?: number
+  rate?: number
+}
+
 /**
- * A teacher pastes/types course notes; AI generates a structured summary,
- * flashcards, and a quiz from that text — the same source material every
- * generated piece is grounded in, not independently invented.
+ * NotebookLM-style comprehensive grounded study set with source management,
+ * briefing doc, FAQ, audio overview dialogue, flashcards, and grounded quizzes.
  */
 export interface StudySet {
   id: string
@@ -247,8 +268,60 @@ export interface StudySet {
   teacherName: string
   title: string
   sourceText: string
-  notes: string
+  sources?: StudyDocumentSource[]
+  notes: string // Structured markdown notes & study guide
+  briefingDoc?: string // Executive / Chapter briefing doc
+  faq?: Array<{ question: string; answer: string }> // Grounded FAQ
+  audioOverview?: AudioOverviewDialog[] // 2-speaker podcast dialog script
   flashcards: StudyFlashcard[]
   quiz: StudyQuizQuestion[]
+  createdAt: number
+}
+
+export interface HomeworkVariant {
+  studentUid: string
+  studentName?: string
+  prompt: string
+  parameters: Record<string, number>
+  expectedAnswer: number
+  unit: string
+  submittedAnswer?: number | string
+  scratchpadData?: string // Drawings, equations, work shown
+  confidenceRating?: 'confident' | 'effort' | 'struggling' | 'aha'
+  timeSpentSeconds?: number
+  score?: number
+  feedback?: string
+  submittedAt?: number
+}
+
+export interface HomeworkAssignment {
+  id: string
+  classroomId: string
+  classroomName: string
+  teacherId: string
+  teacherName: string
+  title: string
+  description: string
+  topic: string
+  dueDate: number
+  createdAt: number
+  baseProblem: {
+    promptTemplate: string
+    variables: Record<string, { min: number; max: number; unit: string; step?: number }>
+    solutionFormula: string
+    rubric: string[]
+  }
+  variants: Record<string, HomeworkVariant>
+}
+
+export interface ClassNotification {
+  id: string
+  recipientUid: string
+  type: 'homework' | 'announcement' | 'studyset' | 'grade'
+  title: string
+  body: string
+  linkScreen?: string
+  linkId?: string
+  read: boolean
   createdAt: number
 }

@@ -3,9 +3,11 @@ import type { ConceptId } from '../learning/LearnerModel'
 import { session } from '../accounts/Session'
 import { listClassroomsForUser, DEMO_CLASSROOM_ID } from '../accounts/ClassroomService'
 import { fetchProgressSnapshot, fetchClassroomProgress } from '../accounts/ProgressService'
-import { farm } from '../simulation/FarmState'
+import { listHomeworkForStudent } from '../accounts/HomeworkService'
+import { listStudySetsForClassroom } from '../accounts/StudySetService'
+import { openStudySet } from './studySetViewer'
 import { progress, rankFor } from '../game/progress'
-import type { Classroom, UserProfile, ProgressSnapshot } from '../accounts/types'
+import type { Classroom, UserProfile, ProgressSnapshot, HomeworkAssignment, StudySet } from '../accounts/types'
 import { toast } from '../game/shell'
 
 export interface DashboardNav {
@@ -122,8 +124,10 @@ export function renderDashboard(root: HTMLElement, nav: DashboardNav) {
   Promise.all([
     listClassroomsForUser(profile),
     !isTeacher ? fetchProgressSnapshot(DEMO_CLASSROOM_ID, profile.uid).catch(() => null) : Promise.resolve(null),
+    listHomeworkForStudent([{ id: DEMO_CLASSROOM_ID }], profile.uid).catch(() => [] as HomeworkAssignment[]),
+    listStudySetsForClassroom(DEMO_CLASSROOM_ID).catch(() => [] as StudySet[]),
   ])
-    .then(async ([classrooms, demoProgress]) => {
+    .then(async ([classrooms, demoProgress, homeworkList, studySetsList]) => {
       // If teacher, calculate real aggregate class stats
       let teacherTotalStudents = 0
       let teacherAvgMastery = 0
@@ -159,12 +163,21 @@ export function renderDashboard(root: HTMLElement, nav: DashboardNav) {
         }
       }
 
-      paintDashboard(root, profile, classrooms, demoProgress, {
-        isTeacher,
-        teacherTotalStudents,
-        teacherAvgMastery,
-        teacherAtRiskCount,
-      }, nav)
+      paintDashboard(
+        root,
+        profile,
+        classrooms,
+        demoProgress,
+        {
+          isTeacher,
+          teacherTotalStudents,
+          teacherAvgMastery,
+          teacherAtRiskCount,
+        },
+        homeworkList,
+        studySetsList,
+        nav,
+      )
     })
     .catch((err) => {
       console.error('SunRoot: dashboard load failed', err)
@@ -195,6 +208,8 @@ function paintDashboard(
     teacherAvgMastery: number
     teacherAtRiskCount: number
   },
+  homeworkList: HomeworkAssignment[],
+  studySetsList: StudySet[],
   nav: DashboardNav,
 ) {
   const { isTeacher } = teacherStats
@@ -212,6 +227,11 @@ function paintDashboard(
   const currentHour = new Date().getHours()
   const timeGreeting = currentHour < 12 ? 'Good morning' : currentHour < 17 ? 'Good afternoon' : 'Good evening'
   const firstName = (profile.displayName || (isTeacher ? 'Instructor' : 'Student')).split(' ')[0]
+
+  // Active Homework & Study Set for Academic Hub
+  const activeHw = homeworkList.length > 0 ? homeworkList[0] : null
+  const activeHwVariant = activeHw ? activeHw.variants[profile.uid] : null
+  const activeStudySet = studySetsList.length > 0 ? studySetsList[0] : null
 
   // BKT concept mastery breakdown
   const conceptMasteryMap = demoProgress?.conceptMastery || {}
@@ -411,78 +431,164 @@ function paintDashboard(
       <!-- Main Two-Column Layout -->
       <div class="dash-v2-main-grid">
         <!-- Left Column: Continue Mission / Live Prototype & Hardware Status -->
-        <div class="dash-card continue-mission-card">
-          <div class="dash-card-head">
-            <div>
-              <span class="sub-label">Simulation Rig</span>
-              <h2>Cyber-Physical Digital Twin</h2>
-            </div>
-            <span class="pulse-live-badge"><span class="live-dot"></span> Live Prototype</span>
-          </div>
-
-          <!-- Prototype Hardware Console -->
-          <div class="twin-console-box" id="twinConsoleClick" role="button" tabindex="0">
-            <div class="twin-console-header">
-              <div class="twin-prototype-name">Prototype: SunRoot Solo Practical</div>
-              <div class="twin-chip-state">Active Physics Sim</div>
-            </div>
-
-            <!-- Telemetry Matrix -->
-            <div class="twin-telemetry-grid">
-              <div class="twin-metric-item">
-                <span class="twin-metric-label">☀️ Solar Array</span>
-                <span class="twin-metric-val">${Math.round(farm.solarGeneration)} W</span>
+        <!-- Left Column: Academic Homework, NotebookLM Studio, and Practical Digital Twins -->
+        <div class="dash-left-col-stack">
+          <!-- 1. Isomorphic Homework Hub (Anti-Cheat) -->
+          <div class="dash-card dash-hw-card">
+            <div class="dash-card-head">
+              <div>
+                <span class="sub-label">Academic Curriculum</span>
+                <h2>${isTeacher ? 'Isomorphic Homework Engine' : 'Active Homework Challenge'}</h2>
               </div>
-              <div class="twin-metric-item">
-                <span class="twin-metric-label">🔋 Battery Pack</span>
-                <span class="twin-metric-val ${farm.battery < 25 ? 'warn' : ''}">${Math.round(farm.battery)}%</span>
-              </div>
-              <div class="twin-metric-item">
-                <span class="twin-metric-label">💧 Soil Moisture</span>
-                <span class="twin-metric-val ${farm.soilMoisture < 25 ? 'warn' : ''}">${Math.round(farm.soilMoisture)}%</span>
-              </div>
-              <div class="twin-metric-item">
-                <span class="twin-metric-label">🌱 Crop Health</span>
-                <span class="twin-metric-val ${farm.cropHealth < 40 ? 'warn' : 'good'}">${Math.round(farm.cropHealth)}%</span>
-              </div>
-            </div>
-
-            <!-- Status Indicator Line -->
-            <div class="twin-status-foot">
-              <span class="twin-pump-state">
-                Pump State: <strong>${farm.pumpOn ? 'ON (Irrigating)' : 'STANDBY (Threshold)'}</strong>
+              <span class="anti-cheat-pill" title="Every student receives distinct parameterized numbers with identical difficulty">
+                🛡️ Anti-Cheat Isomorphic
               </span>
-              <span class="twin-resume-hint">Click anywhere to open bench →</span>
+            </div>
+
+            ${isTeacher ? `
+              <div class="hw-teacher-overview">
+                <p class="hw-summary-text">
+                  AI generates parameterized variables per student. Every student solves identical physics formulas with distinct values, preventing copying while guaranteeing fair ranking.
+                </p>
+                <div class="hw-teacher-stats">
+                  <div class="hw-t-stat"><strong>${homeworkList.length}</strong><span>Active Assignments</span></div>
+                  <div class="hw-t-stat"><strong>100%</strong><span>Fair Ranking</span></div>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:14px;">
+                  <button class="primary-button small" id="teacherGenHwBtn">+ Create Parameterized Challenge</button>
+                  <button class="ghost-button small" id="teacherOpenNotesBtn">View NotebookLM Sets</button>
+                </div>
+              </div>
+            ` : activeHw ? `
+              <div class="hw-student-card">
+                <div class="hw-card-top">
+                  <div class="hw-title">${escapeHtml(activeHw.title)}</div>
+                  <span class="hw-due-pill ${activeHwVariant?.submittedAnswer !== undefined ? 'completed' : ''}">
+                    ${activeHwVariant?.submittedAnswer !== undefined ? '✓ Completed' : 'Due in 3 Days'}
+                  </span>
+                </div>
+                <p class="hw-desc">${escapeHtml(activeHw.description)}</p>
+                <div class="hw-meta-strip">
+                  <span>Class: <strong>${escapeHtml(activeHw.classroomName)}</strong></span>
+                  <span>Topic: <strong>${escapeHtml(activeHw.topic)}</strong></span>
+                  ${activeHwVariant?.score !== undefined ? `<span>Score: <strong style="color: #4fd67a">${activeHwVariant.score}%</strong></span>` : ''}
+                </div>
+                <div class="hw-actions">
+                  <button class="primary-button small" id="solveHwBtn">
+                    ${activeHwVariant?.submittedAnswer !== undefined ? 'Review Submission 📝' : 'Solve Parameterized Challenge ⚡'}
+                  </button>
+                  <span class="hw-scratchpad-hint">Includes neurodivergent visual scratchpad & confidence check</span>
+                </div>
+              </div>
+            ` : `
+              <div class="hw-empty-box">
+                <p>No pending homework assignments. You’re all caught up!</p>
+                <button class="ghost-button small" id="exploreStudySetsBtn">Open NotebookLM Study Hub →</button>
+              </div>
+            `}
+          </div>
+
+          <!-- 2. NotebookLM Knowledge Studio & Audio Overview Hub -->
+          <div class="dash-card dash-notebook-card">
+            <div class="dash-card-head">
+              <div>
+                <span class="sub-label">Grounded Knowledge Hub</span>
+                <h2>NotebookLM Studio & Audio Deep Dive</h2>
+              </div>
+              <span class="notebook-audio-badge">🎙️ 2-Speaker Podcast Ready</span>
+            </div>
+
+            <p class="notebook-studio-desc">
+              Grounded in official syllabus materials: ${activeStudySet ? `<strong>${escapeHtml(activeStudySet.title)}</strong>` : 'Lecture Notes & PDFs'}. Synthesizes executive briefings, citations, and 2-speaker audio podcast conversations between Alex & Dr. Sam.
+            </p>
+
+            <div class="notebook-feature-chips">
+              <span class="nb-chip">🎙️ Deep Dive Audio</span>
+              <span class="nb-chip">📄 Executive Briefing</span>
+              <span class="nb-chip">💬 Grounded Q&A</span>
+              <span class="nb-chip">🗂️ 3D Flashcards</span>
+              <span class="nb-chip">🧠 Metacognitive Checks</span>
+            </div>
+
+            <div class="notebook-card-action">
+              <button class="primary-button" id="openNotebookHubBtn" style="width: 100%;">
+                Open NotebookLM Study Hub 📚
+              </button>
             </div>
           </div>
 
-          <!-- 4 Quick Benches Launcher -->
-          <div class="quick-benches-grid">
-            <button class="bench-shortcut-btn" id="toShedBenchBtn">
-              <span class="bench-icon">🛠️</span>
-              <span class="bench-name">Tool Shed</span>
-              <span class="bench-sub">Specs & Parts</span>
-            </button>
-            <button class="bench-shortcut-btn" id="toCircuitBenchBtn">
-              <span class="bench-icon">⚡</span>
-              <span class="bench-name">Circuit Lab</span>
-              <span class="bench-sub">Breadboard</span>
-            </button>
-            <button class="bench-shortcut-btn" id="toCodingBenchBtn">
-              <span class="bench-icon">💻</span>
-              <span class="bench-name">Coding Lab</span>
-              <span class="bench-sub">Blockly Logic</span>
-            </button>
-            <button class="bench-shortcut-btn" id="toFarmBenchBtn">
-              <span class="bench-icon">🌾</span>
-              <span class="bench-name">Farm Twin</span>
-              <span class="bench-sub">Real-Time Run</span>
+          <!-- 3. Classroom Practical Simulation Rigs (Digital Twins) -->
+          <div class="dash-card dash-twin-rigs-card">
+            <div class="dash-card-head">
+              <div>
+                <span class="sub-label">Hands-On Computing Labs</span>
+                <h2>Classroom Practical Sessions</h2>
+              </div>
+              <span class="pulse-live-badge"><span class="live-dot"></span> 4 Active Labs</span>
+            </div>
+
+            <div class="practical-benches-grid">
+              <div class="practical-bench-item" id="toFarmBenchBtn" role="button" tabindex="0">
+                <div class="bench-item-head">
+                  <span class="bench-icon">🌾</span>
+                  <div>
+                    <div class="bench-title">Agricultural Micro-Farm Twin</div>
+                    <div class="bench-sub-type">Demo Reference Practical Simulation</div>
+                  </div>
+                </div>
+                <p class="bench-desc">
+                  Closed-loop soil moisture physics, hydraulic pump irrigation, and diurnal solar irradiance curves.
+                </p>
+                <span class="bench-link-arrow">Launch Farm Sim →</span>
+              </div>
+
+              <div class="practical-bench-item" id="toCircuitBenchBtn" role="button" tabindex="0">
+                <div class="bench-item-head">
+                  <span class="bench-icon">⚡</span>
+                  <div>
+                    <div class="bench-title">Circuit & Breadboard Lab</div>
+                    <div class="bench-sub-type">Hardware Wiring & Tolerances</div>
+                  </div>
+                </div>
+                <p class="bench-desc">
+                  Establish common ground references, 3.3V/5V logic conversion, and GPIO drive stage protection.
+                </p>
+                <span class="bench-link-arrow">Open Circuit Bench →</span>
+              </div>
+
+              <div class="practical-bench-item" id="toCodingBenchBtn" role="button" tabindex="0">
+                <div class="bench-item-head">
+                  <span class="bench-icon">💻</span>
+                  <div>
+                    <div class="bench-title">Coding & Control Lab</div>
+                    <div class="bench-sub-type">Blockly State Machines & Logic</div>
+                  </div>
+                </div>
+                <p class="bench-desc">
+                  Deploy dual-threshold hysteresis loops to suppress damaging actuator chatter and save power.
+                </p>
+                <span class="bench-link-arrow">Open Coding Lab →</span>
+              </div>
+
+              <div class="practical-bench-item" id="toShedBenchBtn" role="button" tabindex="0">
+                <div class="bench-item-head">
+                  <span class="bench-icon">🛠️</span>
+                  <div>
+                    <div class="bench-title">Tool Shed & Specs</div>
+                    <div class="bench-sub-type">Datasheets & Component Inventory</div>
+                  </div>
+                </div>
+                <p class="bench-desc">
+                  Solar panel Watt ratings, battery capacity (A·h), transistor specs, and hydraulic motor parts.
+                </p>
+                <span class="bench-link-arrow">Open Tool Shed →</span>
+              </div>
+            </div>
+
+            <button class="ghost-button large" id="openFullWorkshopBtn" style="margin-top: 14px; width: 100%;">
+              Open Full Integrated Workshop Rig →
             </button>
           </div>
-
-          <button class="primary-button large pulse-button" id="openFullWorkshopBtn" style="margin-top: 14px; width: 100%;">
-            Launch Integrated Workshop Bench →
-          </button>
         </div>
 
         <!-- Right Column: Progression & Radar Webchart -->
@@ -696,8 +802,21 @@ function paintDashboard(
   root.querySelector('#createClassTopBtn')?.addEventListener('click', nav.toClasses)
   root.querySelector('#openAnalyticsTopBtn')?.addEventListener('click', () => nav.toTeacherAnalytics?.() ?? nav.toClasses())
 
-  // Prototype console & quick bench buttons
-  root.querySelector('#twinConsoleClick')?.addEventListener('click', nav.toDemoWorkshop)
+  // Academic Homework & NotebookLM Studio buttons
+  const launchActiveStudySet = () => {
+    if (activeStudySet) {
+      openStudySet(activeStudySet.id)
+    }
+    nav.toStudySetViewer?.()
+  }
+
+  root.querySelector('#teacherGenHwBtn')?.addEventListener('click', launchActiveStudySet)
+  root.querySelector('#teacherOpenNotesBtn')?.addEventListener('click', launchActiveStudySet)
+  root.querySelector('#solveHwBtn')?.addEventListener('click', launchActiveStudySet)
+  root.querySelector('#exploreStudySetsBtn')?.addEventListener('click', launchActiveStudySet)
+  root.querySelector('#openNotebookHubBtn')?.addEventListener('click', launchActiveStudySet)
+
+  // Practical Twin Labs bench buttons
   root.querySelector('#openFullWorkshopBtn')?.addEventListener('click', nav.toDemoWorkshop)
   root.querySelector('#toShedBenchBtn')?.addEventListener('click', () => nav.toShed?.() ?? nav.toDemoWorkshop())
   root.querySelector('#toCircuitBenchBtn')?.addEventListener('click', () => nav.toCircuit?.() ?? nav.toDemoWorkshop())

@@ -7,6 +7,8 @@ import { session } from '../accounts/Session'
 import { getActiveTeam } from '../accounts/WorkshopContext'
 import { getTeam, shipTeamState } from '../accounts/TeamService'
 import { buildSnapshot, applySnapshot } from '../persistence/SaveManager'
+import { logOut } from '../accounts/AuthService'
+import { listNotificationsForUser } from '../accounts/NotificationService'
 
 export interface NavItem {
   group?: string
@@ -77,13 +79,23 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
 
         <div class="team-panel" id="teamPanel" hidden></div>
 
-        <button class="profile-chip" id="profileChip">
-          <span class="profile-avatar" id="profileAvatar">?</span>
-          <span class="profile-chip-info">
-            <span class="profile-chip-name" id="profileChipName">Account</span>
-            <span class="profile-chip-role" id="profileChipRole"></span>
-          </span>
-        </button>
+        <div class="sidebar-user-section">
+          <button class="profile-chip" id="profileChip">
+            <span class="profile-avatar" id="profileAvatar">?</span>
+            <span class="profile-chip-info">
+              <span class="profile-chip-name" id="profileChipName">Account</span>
+              <span class="profile-chip-role" id="profileChipRole"></span>
+            </span>
+          </button>
+          <button class="sidebar-logout-btn" id="sidebarLogoutBtn" title="Sign out of your account">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            <span>Log Out</span>
+          </button>
+        </div>
       </aside>
 
       <div class="main-col">
@@ -110,10 +122,22 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
               <button class="topbar-icon-btn" id="topbarVoiceBtn" title="Toggle AI Voice">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg>
               </button>
+              <button class="topbar-icon-btn" id="topbarNotifBtn" title="View Class Notifications & Homework">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+                <span class="notif-dot" id="notifDot" style="display:none"></span>
+              </button>
             </div>
             <button class="topbar-profile-chip" id="topbarProfileChip" title="View Account Profile">
               <span class="topbar-avatar" id="topbarAvatar">?</span>
               <span class="topbar-name" id="topbarName">Profile</span>
+            </button>
+            <button class="topbar-logout-btn" id="topbarLogoutBtn" title="Sign out of your account">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              <span>Log Out</span>
             </button>
           </div>
         </header>
@@ -186,6 +210,34 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
   root.querySelector<HTMLButtonElement>('#topbarProfileChip')?.addEventListener('click', () => {
     shellRoot?.classList.remove('sidebar-open')
     onNavigate?.('profile')
+  })
+
+  // Explicit 1-Click Logout
+  const handleSignOut = async () => {
+    shellRoot?.classList.remove('sidebar-open')
+    try {
+      await logOut()
+      toast('Signed out successfully.', 'info')
+      onNavigate?.('login')
+    } catch {
+      onNavigate?.('login')
+    }
+  }
+
+  root.querySelector<HTMLButtonElement>('#sidebarLogoutBtn')?.addEventListener('click', handleSignOut)
+  root.querySelector<HTMLButtonElement>('#topbarLogoutBtn')?.addEventListener('click', handleSignOut)
+
+  // Notification bell
+  root.querySelector<HTMLButtonElement>('#topbarNotifBtn')?.addEventListener('click', async () => {
+    const prof = session.profile
+    if (!prof) return
+    const notifs = await listNotificationsForUser(prof.uid)
+    if (notifs.length === 0) {
+      toast('No new notifications or homework assignments.', 'info')
+    } else {
+      const latest = notifs[0]
+      toast(`<strong>${latest.title}</strong>: ${latest.body}`, 'info')
+    }
   })
 
   syncSoundButtons()
