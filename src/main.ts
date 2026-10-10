@@ -12,7 +12,7 @@ import { mountAssistantDock } from './ai/AssistantDock'
 import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
 import { renderFarm, stopFarmLoop } from './screens/farm'
 import { renderTutor, renderReport, renderQuiz, renderRewards } from './screens/extras'
-import { mountShell, renderNav, renderHud, updateRankUi, updateTeamPanel, setSidebarTheme, setHudVisible, transitionView, setTopbarTitle } from './game/shell'
+import { mountShell, renderNav, updateRankUi, updateTeamPanel, setSidebarTheme, setHudVisible, transitionView, setTopbarTitle } from './game/shell'
 import type { NavItem } from './game/shell'
 import { farm } from './simulation/FarmState'
 
@@ -38,7 +38,6 @@ import { renderCompleteProfile } from './screens/completeProfile'
 
 const root = document.querySelector<HTMLDivElement>('#app')!
 let shellMounted = false
-let hudTimer = 0
 let postLoadingScreen: Screen = 'dashboard'
 
 const WORKSHOP_SCREENS: Screen[] = ['workshopHub', 'farm', 'shed', 'circuit', 'coding', 'learning', 'quiz', 'report', 'rewards', 'tutor']
@@ -57,7 +56,7 @@ function navItems(screen: Screen): NavItem[] {
 
   items.push({ id: 'dashboard' as Screen, label: 'Dashboard', icon: icon('class'), group: 'Account' })
   items.push({ id: 'classes' as Screen, label: 'My Classes', icon: icon('class'), group: 'Account' })
-  items.push({ id: 'studySetViewer' as Screen, label: 'NotebookLM Study Hub', icon: icon('brain'), group: 'Account' })
+  items.push({ id: 'studySetViewer' as Screen, label: 'Personal Study Lab', icon: icon('brain'), group: 'Account' })
   items.push({ id: 'leaderboard' as Screen, label: 'Leaderboard', icon: icon('rewards'), group: 'Account' })
   items.push({ id: 'messages' as Screen, label: 'Messages', icon: icon('tutor'), group: 'Account' })
   if (role !== 'teacher') {
@@ -85,34 +84,11 @@ function navItems(screen: Screen): NavItem[] {
   return items
 }
 
-function startHudTicker() {
-  cancelAnimationFrame(hudTimer)
-  const tick = () => {
-    renderHud([
-      { label: 'Solar', value: `${Math.round(farm.solarGeneration)} W` },
-      { label: 'Battery', value: `${Math.round(farm.battery)}%`, tone: farm.battery < 25 ? 'warn' : '' },
-      { label: 'Soil moisture', value: `${Math.round(farm.soilMoisture)}%`, tone: farm.soilMoisture < 25 ? 'warn' : '' },
-      { label: 'Pump', value: farm.pumpOn ? 'ON' : 'OFF', tone: farm.pumpOn ? 'good' : '' },
-      { label: 'Crop health', value: `${Math.round(farm.cropHealth)}%`, tone: farm.cropHealth < 40 ? 'warn' : 'good' },
-      { label: 'Time', value: formatHour(farm.hour) },
-    ])
-    hudTimer = requestAnimationFrame(tick)
-  }
-  tick()
-}
-
-function formatHour(h: number) {
-  const hh = Math.floor(h)
-  const mm = Math.floor((h % 1) * 60)
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
-}
-
 function ensureShell() {
   if (shellMounted) return
   mountShell(root, goTo)
   shellMounted = true
   updateRankUi()
-  startHudTicker()
 }
 
 export function goTo(screen: Screen) {
@@ -128,14 +104,12 @@ export function goTo(screen: Screen) {
 
   if (screen === 'login') {
     shellMounted = false
-    cancelAnimationFrame(hudTimer)
     setSidebarTheme('campus') // login has no sidebar yet, but this also flips body.theme-campus for the auth card styling
     renderLogin(root, () => goTo('loading'))
     return
   }
   if (screen === 'loading') {
     shellMounted = false
-    cancelAnimationFrame(hudTimer)
     initAccessibility()
     mountAssistantDock()
     // Normally the dashboard, not the farm — but if a refresh happened
@@ -149,7 +123,6 @@ export function goTo(screen: Screen) {
   }
   if (screen === 'intro') {
     shellMounted = false
-    cancelAnimationFrame(hudTimer)
     renderIntro(root, () => goTo('farm'))
     return
   }
@@ -181,7 +154,7 @@ export function goTo(screen: Screen) {
     rewards: 'Rewards & Badges',
     tutor: 'AI Engineering Tutor',
     access: 'Accessibility',
-    studySetViewer: 'Study Sets & Flashcards',
+    studySetViewer: 'Personal Study Lab',
   }
   setTopbarTitle(SCREEN_TITLES[screen] ?? 'Portal')
 

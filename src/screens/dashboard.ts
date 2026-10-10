@@ -456,7 +456,7 @@ function paintDashboard(
                 </div>
                 <div style="display:flex; gap:10px; margin-top:14px;">
                   <button class="primary-button small" id="teacherGenHwBtn">+ Create Parameterized Challenge</button>
-                  <button class="ghost-button small" id="teacherOpenNotesBtn">View NotebookLM Sets</button>
+                  <button class="ghost-button small" id="teacherOpenNotesBtn">View Personal Study Sets</button>
                 </div>
               </div>
             ` : activeHw ? `
@@ -483,17 +483,17 @@ function paintDashboard(
             ` : `
               <div class="hw-empty-box">
                 <p>No pending homework assignments. You’re all caught up!</p>
-                <button class="ghost-button small" id="exploreStudySetsBtn">Open NotebookLM Study Hub →</button>
+                <button class="ghost-button small" id="exploreStudySetsBtn">Open Personal Study Lab →</button>
               </div>
             `}
           </div>
 
-          <!-- 2. NotebookLM Knowledge Studio & Audio Overview Hub -->
+          <!-- 2. Personal Study Lab & Audio Overview Hub -->
           <div class="dash-card dash-notebook-card">
             <div class="dash-card-head">
               <div>
                 <span class="sub-label">Grounded Knowledge Hub</span>
-                <h2>NotebookLM Studio & Audio Deep Dive</h2>
+                <h2>Personal Study Lab & Audio Deep Dive</h2>
               </div>
               <span class="notebook-audio-badge">🎙️ 2-Speaker Podcast Ready</span>
             </div>
@@ -512,7 +512,7 @@ function paintDashboard(
 
             <div class="notebook-card-action">
               <button class="primary-button" id="openNotebookHubBtn" style="width: 100%;">
-                Open NotebookLM Study Hub 📚
+                Open Personal Study Lab 🔬
               </button>
             </div>
           </div>

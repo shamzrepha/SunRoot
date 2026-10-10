@@ -11,7 +11,9 @@ import {
   leaveClassroom,
   fetchUsersByIds,
   submitClassSuggestion,
+  resetDatabaseToSingleClassroom,
 } from '../accounts/ClassroomService'
+import { toast } from '../game/shell'
 import { createTeam, joinTeam, listTeamsForClassroom, setMyTeamRole, teamBudgetRemaining } from '../accounts/TeamService'
 import { fetchClassroomProgress, isRecentlyActive } from '../accounts/ProgressService'
 import { generateTeachingRecommendations, generateStudentRecommendation } from '../ai/TeachingInsights'
@@ -364,6 +366,8 @@ interface ClassAnalytics {
   avgMastery: number
   avgXp: number
   atRisk: { student: UserProfile; reason: string }[]
+  rapidProgressStudents: { student: UserProfile; rapidConcepts: string[]; velocity: string }[]
+  rapidConcepts: { id: string; label: string; avgMastery: number; studentCount: number }[]
   weakestConcepts: { id: string; label: string; avgMastery: number; studentCount: number }[]
 }
 
@@ -375,37 +379,73 @@ function computeClassAnalytics(roster: UserProfile[], progressByUid: Record<stri
   const avgXp = withData.length ? withData.reduce((sum, s) => sum + progressByUid[s.uid].xp, 0) / withData.length : 0
 
   const atRisk: ClassAnalytics['atRisk'] = []
+  const rapidProgressStudents: ClassAnalytics['rapidProgressStudents'] = []
+
   for (const s of roster) {
     const p = progressByUid[s.uid]
     if (!p) {
       atRisk.push({ student: s, reason: 'No activity yet' })
-    } else if (p.overallMastery < 0.4 && Object.values(p.conceptMastery).some((c) => c.engaged)) {
-      atRisk.push({ student: s, reason: `${Math.round(p.overallMastery * 100)}% mastery \u2014 struggling` })
+    } else {
+      const studentRapids: string[] = []
+      let totalCorrect = 0
+      let totalIncorrect = 0
+
+      for (const [conceptId, c] of Object.entries(p.conceptMastery)) {
+        if (!c.engaged) continue
+        totalCorrect += c.correct
+        totalIncorrect += c.incorrect
+        const accuracy = c.correct + c.incorrect > 0 ? c.correct / (c.correct + c.incorrect) : 0
+        if (c.mastery >= 0.72 && accuracy >= 0.7 && c.correct >= 2) {
+          studentRapids.push(CONCEPT_BY_ID.get(conceptId as any)?.label ?? conceptId)
+        }
+      }
+
+      const totalAttempts = totalCorrect + totalIncorrect
+      const velocityRatio = totalAttempts > 0 ? totalCorrect / totalAttempts : 0
+      const velocity = velocityRatio >= 0.75 && p.conceptsMastered >= 3 ? '⚡ Rapid Pace' : velocityRatio < 0.45 ? '🔄 Friction' : '📈 Steady'
+
+      if (studentRapids.length > 0) {
+        rapidProgressStudents.push({ student: s, rapidConcepts: studentRapids, velocity })
+      }
+
+      if (p.overallMastery < 0.4 && Object.values(p.conceptMastery).some((c) => c.engaged)) {
+        atRisk.push({ student: s, reason: `${Math.round(p.overallMastery * 100)}% mastery \u2014 trapped in error loops` })
+      }
     }
   }
 
-  const conceptTotals = new Map<string, { sum: number; count: number }>()
+  const conceptTotals = new Map<string, { sum: number; count: number; correct: number; incorrect: number }>()
   for (const s of withData) {
     const p = progressByUid[s.uid]
     for (const [conceptId, c] of Object.entries(p.conceptMastery)) {
       if (!c.engaged) continue
-      const entry = conceptTotals.get(conceptId) ?? { sum: 0, count: 0 }
+      const entry = conceptTotals.get(conceptId) ?? { sum: 0, count: 0, correct: 0, incorrect: 0 }
       entry.sum += c.mastery
       entry.count += 1
+      entry.correct += c.correct
+      entry.incorrect += c.incorrect
       conceptTotals.set(conceptId, entry)
     }
   }
-  const weakestConcepts = [...conceptTotals.entries()]
-    .map(([id, { sum, count }]) => ({
-      id,
-      label: CONCEPT_BY_ID.get(id as any)?.label ?? id,
-      avgMastery: sum / count,
-      studentCount: count,
-    }))
+
+  const allConceptEntries = [...conceptTotals.entries()].map(([id, st]) => ({
+    id,
+    label: CONCEPT_BY_ID.get(id as any)?.label ?? id,
+    avgMastery: st.sum / st.count,
+    studentCount: st.count,
+    accuracy: st.correct + st.incorrect > 0 ? st.correct / (st.correct + st.incorrect) : 0,
+  }))
+
+  const rapidConcepts = [...allConceptEntries]
+    .filter((c) => c.avgMastery >= 0.7 && c.accuracy >= 0.7)
+    .sort((a, b) => b.avgMastery - a.avgMastery)
+    .slice(0, 3)
+
+  const weakestConcepts = [...allConceptEntries]
     .sort((a, b) => a.avgMastery - b.avgMastery)
     .slice(0, 3)
 
-  return { studentsWithData: withData.length, avgMastery, avgXp, atRisk, weakestConcepts }
+  return { studentsWithData: withData.length, avgMastery, avgXp, atRisk, rapidProgressStudents, rapidConcepts, weakestConcepts }
 }
 
 function paintDetail(
@@ -472,7 +512,14 @@ function paintDetail(
       ${
         isOwner && analytics
           ? `<div class="class-panel analytics-panel">
-              <h2>Class Analytics</h2>
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                <h2>Class Observability &amp; Analytics</h2>
+                <div class="inline-form" style="gap:8px;">
+                  <button class="ghost-button small" id="exportGradebookBtn">📥 Export Gradebook (CSV)</button>
+                  <button class="ghost-button small" id="resetClassBtn" style="color:#f87171; border-color:rgba(248,113,113,0.3)">🔄 Reset to 1 Class</button>
+                </div>
+              </div>
+
               ${
                 analytics.studentsWithData === 0
                   ? `<p class="empty-note">No student activity recorded yet.</p>`
@@ -480,23 +527,50 @@ function paintDetail(
                     <div class="dash-grid">
                       <div class="teach-card"><div class="teach-tag">AVG MASTERY</div><div class="class-figure">${Math.round(analytics.avgMastery * 100)}%</div></div>
                       <div class="teach-card"><div class="teach-tag">AVG XP</div><div class="class-figure">${Math.round(analytics.avgXp)}</div></div>
-                      <div class="teach-card"><div class="teach-tag">STUDENTS ACTIVE</div><div class="class-figure">${analytics.studentsWithData}/${roster.length}</div></div>
+                      <div class="teach-card"><div class="teach-tag">ACTIVE STUDENTS</div><div class="class-figure">${analytics.studentsWithData}/${roster.length}</div></div>
+                      <div class="teach-card"><div class="teach-tag">RAPID ACCELERATORS</div><div class="class-figure" style="color:#10B981">${analytics.rapidProgressStudents.length}</div></div>
                     </div>
 
                     ${
+                      analytics.rapidConcepts.length
+                        ? `<h3 class="sub-heading" style="color:#10B981; margin-top:14px;">⚡ Rapid Progression Areas (Cohort Acceleration)</h3>
+                          <div class="class-bars">
+                            ${analytics.rapidConcepts
+                              .map(
+                                (c) => `<div class="class-bar-row"><span class="cb-name">⚡ ${escapeHtml(c.label)}</span>
+                                  <div class="cb-track"><div class="cb-fill high" style="width:${c.avgMastery * 100}%; background:#10B981;"></div></div>
+                                  <span class="cb-pct" style="color:#10B981;">${Math.round(c.avgMastery * 100)}% (${c.studentCount} students)</span></div>`,
+                              )
+                              .join('')}
+                          </div>`
+                        : ''
+                    }
+
+                    ${
+                      analytics.rapidProgressStudents.length
+                        ? `<h3 class="sub-heading" style="margin-top:14px;">Accelerated Students (${analytics.rapidProgressStudents.length})</h3>
+                          <ul class="roster-list">
+                            ${analytics.rapidProgressStudents
+                              .map((r) => `<li><span><strong>${escapeHtml(r.student.displayName)}</strong></span><span class="roster-progress" style="color:#10B981">${escapeHtml(r.velocity)} \u2014 Rapidly acquiring: ${escapeHtml(r.rapidConcepts.join(', '))}</span></li>`)
+                              .join('')}
+                          </ul>`
+                        : ''
+                    }
+
+                    ${
                       analytics.atRisk.length
-                        ? `<h3 class="sub-heading">Needs attention (${analytics.atRisk.length})</h3>
+                        ? `<h3 class="sub-heading" style="margin-top:14px;">Cognitive Friction &amp; Inactivity (${analytics.atRisk.length})</h3>
                           <ul class="roster-list">
                             ${analytics.atRisk
                               .map((r) => `<li><span>${escapeHtml(r.student.displayName)}</span><span class="roster-progress at-risk">${escapeHtml(r.reason)}</span></li>`)
                               .join('')}
                           </ul>`
-                        : `<p class="empty-note">No students currently flagged as struggling.</p>`
+                        : `<p class="empty-note">No students currently flagged with cognitive friction.</p>`
                     }
 
                     ${
                       analytics.weakestConcepts.length
-                        ? `<h3 class="sub-heading">Weakest concepts class-wide</h3>
+                        ? `<h3 class="sub-heading" style="margin-top:14px;">Weakest concepts &amp; bottlenecks</h3>
                           <div class="class-bars">
                             ${analytics.weakestConcepts
                               .map(
@@ -694,28 +768,124 @@ function paintDetail(
       resultEl.innerHTML = ''
 
       const engaged = Object.entries(p.conceptMastery).filter(([, c]) => c.engaged)
+      const rapidConcepts = engaged.filter(([, c]) => c.mastery >= 0.72 && (c.correct / (c.correct + c.incorrect)) >= 0.7 && c.correct >= 2)
       const weakest = [...engaged].sort((a, b) => a[1].mastery - b[1].mastery).slice(0, 4)
       const stuckOn = engaged.filter(([, c]) => c.correct + c.incorrect > 0 && c.incorrect / (c.correct + c.incorrect) >= 0.5 && c.incorrect >= 2)
+      const learningStyle = student.learningStyle
+        ? `Cognitive Profile: ${Math.round(student.learningStyle.visual * 100)}% Visual, ${Math.round(student.learningStyle.kinesthetic * 100)}% Kinesthetic, ${Math.round(student.learningStyle.readingWriting * 100)}% Reading.`
+        : 'Cognitive Profile: Multi-modal experiential.'
 
       const summary = [
         `Student: ${student.displayName}. Class: ${classroom.name} (${classroom.topic}). Rank: ${p.rank}, ${p.xp} XP, ${p.conceptsMastered}/${p.totalConcepts} concepts mastered.`,
+        rapidConcepts.length
+          ? `Rapid Progression Areas (Accelerated Mastery): ${rapidConcepts.map(([id, c]) => `${CONCEPT_BY_ID.get(id as any)?.label ?? id} (${Math.round(c.mastery * 100)}%)`).join(', ')}.`
+          : 'Rapid Progression Areas: None yet.',
         weakest.length
-          ? `Weakest concepts: ${weakest.map(([id, c]) => `${CONCEPT_BY_ID.get(id as any)?.label ?? id} (${Math.round(c.mastery * 100)}%)`).join(', ')}.`
-          : 'No concept activity recorded yet.',
+          ? `Weakest Concepts: ${weakest.map(([id, c]) => `${CONCEPT_BY_ID.get(id as any)?.label ?? id} (${Math.round(c.mastery * 100)}%)`).join(', ')}.`
+          : 'Weakest Concepts: None.',
         stuckOn.length
-          ? `Concepts where they keep getting it wrong: ${stuckOn.map(([id]) => CONCEPT_BY_ID.get(id as any)?.label ?? id).join(', ')}.`
+          ? `Cognitive Bottlenecks (Trapped in Error Loops): ${stuckOn.map(([id]) => CONCEPT_BY_ID.get(id as any)?.label ?? id).join(', ')}.`
           : '',
+        learningStyle,
       ]
         .filter(Boolean)
-        .join(' ')
+        .join('\n')
 
       const res = await generateStudentRecommendation(summary)
       btn.disabled = false
-      btn.textContent = `Regenerate recommendation for ${(student.displayName || 'Student').split(' ')[0]}`
+      btn.textContent = `Regenerate intervention for ${(student.displayName || 'Student').split(' ')[0]}`
       resultEl.innerHTML = res.text
         ? `<div class="ai-insight-box">${escapeHtml(res.text).replace(/\n/g, '<br>')}</div>`
-        : `<p class="empty-note">Couldn\u2019t generate a recommendation: ${escapeHtml(res.error ?? 'unknown error')}</p>`
+        : `<p class="empty-note">Couldn\u2019t generate an intervention: ${escapeHtml(res.error ?? 'unknown error')}</p>`
     })
+  })
+
+  // 1-Click LMS Gradebook CSV Export
+  root.querySelector<HTMLButtonElement>('#exportGradebookBtn')?.addEventListener('click', () => {
+    const headers = [
+      'Student Name',
+      'Student ID / Tag',
+      'Overall Mastery (%)',
+      'Engineering XP',
+      'Rank',
+      'Concepts Mastered',
+      'Total Concepts',
+      'Days Survived',
+      'Rapid Progression Concepts',
+      'Cognitive Bottlenecks',
+      'Learning Velocity',
+      'Last Active Date',
+    ]
+
+    const rows = roster.map((s) => {
+      const p = progressByUid[s.uid]
+      if (!p) {
+        return [
+          `"${s.displayName.replace(/"/g, '""')}"`,
+          `"${s.studentTag || 'N/A'}"`,
+          '0%',
+          '0',
+          'Explorer',
+          '0',
+          '10',
+          '0',
+          '"None"',
+          '"No activity"',
+          '"Inactive"',
+          '"Never"',
+        ].join(',')
+      }
+
+      const engaged = Object.entries(p.conceptMastery).filter(([, c]) => c.engaged)
+      const rapid = engaged
+        .filter(([, c]) => c.mastery >= 0.72 && (c.correct / (c.correct + c.incorrect)) >= 0.7 && c.correct >= 2)
+        .map(([id]) => CONCEPT_BY_ID.get(id as any)?.label ?? id)
+      const stuck = engaged
+        .filter(([, c]) => (c.incorrect / (c.correct + c.incorrect)) >= 0.5 && c.incorrect >= 2)
+        .map(([id]) => CONCEPT_BY_ID.get(id as any)?.label ?? id)
+
+      const totalCorrect = engaged.reduce((acc, [, c]) => acc + c.correct, 0)
+      const totalIncorrect = engaged.reduce((acc, [, c]) => acc + c.incorrect, 0)
+      const velocityRatio = totalCorrect + totalIncorrect > 0 ? totalCorrect / (totalCorrect + totalIncorrect) : 0
+      const velocity = velocityRatio >= 0.75 && p.conceptsMastered >= 3 ? 'Rapid Acceleration' : stuck.length > 0 ? 'Cognitive Friction' : 'Steady Growth'
+
+      return [
+        `"${s.displayName.replace(/"/g, '""')}"`,
+        `"${s.studentTag || 'N/A'}"`,
+        `"${Math.round(p.overallMastery * 100)}%"`,
+        p.xp,
+        `"${p.rank}"`,
+        p.conceptsMastered,
+        p.totalConcepts,
+        p.daysSurvived,
+        `"${rapid.join('; ') || 'None'}"`,
+        `"${stuck.join('; ') || 'None'}"`,
+        `"${velocity}"`,
+        `"${new Date(p.updatedAt).toISOString().split('T')[0]}"`,
+      ].join(',')
+    })
+
+    const csvContent = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `SunRoot_Gradebook_${classroom.name.replace(/[^a-zA-Z0-9]/g, '_')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast('Gradebook exported for LMS integration.', 'success')
+  })
+
+  // 1-Click Database Reset to Single Canonical Class
+  root.querySelector<HTMLButtonElement>('#resetClassBtn')?.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to prune all auxiliary classes and leave only 1 canonical class on the database?')) return
+    try {
+      const res = await resetDatabaseToSingleClassroom()
+      toast(res.message, 'success')
+      renderClasses(root, nav)
+    } catch (err: any) {
+      toast('Failed to reset classrooms: ' + err?.message, 'info')
+    }
   })
 
   root.querySelector<HTMLButtonElement>('#aiInsightsBtn')?.addEventListener('click', async (e) => {
@@ -730,6 +900,9 @@ function paintDetail(
       `Class: ${classroom.name} (${classroom.topic}).`,
       `${analytics.studentsWithData} of ${roster.length} students have activity.`,
       `Average mastery: ${Math.round(analytics.avgMastery * 100)}%.`,
+      analytics.rapidProgressStudents.length
+        ? `Rapidly progressing students (accelerated pace): ${analytics.rapidProgressStudents.map((r) => `${r.student.displayName} (${r.rapidConcepts.join(', ')})`).join('; ')}.`
+        : 'No accelerated students yet.',
       analytics.atRisk.length
         ? `Struggling or inactive students: ${analytics.atRisk.map((r) => `${r.student.displayName} (${r.reason})`).join('; ')}.`
         : 'No students currently flagged as struggling.',
@@ -877,21 +1050,43 @@ function studentDetailHtml(student: UserProfile, p: ProgressSnapshot): string {
   const engaged = Object.entries(p.conceptMastery).filter(([, c]) => c.engaged)
   const label = (id: string) => CONCEPT_BY_ID.get(id as any)?.label ?? id
 
+  const rapidConcepts = engaged.filter(([, c]) => c.mastery >= 0.72 && (c.correct / (c.correct + c.incorrect)) >= 0.7 && c.correct >= 2)
+  const stuckConcepts = engaged.filter(([, c]) => (c.incorrect / (c.correct + c.incorrect)) >= 0.5 && c.incorrect >= 2)
+
+  const totalCorrect = engaged.reduce((acc, [, c]) => acc + c.correct, 0)
+  const totalIncorrect = engaged.reduce((acc, [, c]) => acc + c.incorrect, 0)
+  const velocityRatio = totalCorrect + totalIncorrect > 0 ? totalCorrect / (totalCorrect + totalIncorrect) : 0
+  const isAccelerated = velocityRatio >= 0.75 && p.conceptsMastered >= 3
+  const isStuck = stuckConcepts.length > 0
+
+  const velocityBadge = isAccelerated
+    ? '<span class="tag-badge" style="background:rgba(16,185,129,0.18); color:#10B981; border:1px solid rgba(16,185,129,0.4)">⚡ Rapid Acceleration Velocity</span>'
+    : isStuck
+      ? '<span class="tag-badge" style="background:rgba(239,68,68,0.18); color:#EF4444; border:1px solid rgba(239,68,68,0.4)">🔄 Cognitive Friction in Progress</span>'
+      : '<span class="tag-badge" style="background:rgba(56,189,248,0.18); color:#38BDF8; border:1px solid rgba(56,189,248,0.4)">📈 Steady Progression</span>'
+
+  const style = student.learningStyle || { visual: 0.45, kinesthetic: 0.35, readingWriting: 0.2 }
+
   const conceptRows = [...engaged]
-    .sort((a, b) => a[1].mastery - b[1].mastery) // weakest first — what a teacher needs to see first
+    .sort((a, b) => a[1].mastery - b[1].mastery)
     .map(([id, c]) => {
       const struggleRatio = c.correct + c.incorrect > 0 ? c.incorrect / (c.correct + c.incorrect) : 0
       const stuck = struggleRatio >= 0.5 && c.incorrect >= 2
+      const rapid = c.mastery >= 0.72 && (c.correct / (c.correct + c.incorrect)) >= 0.7 && c.correct >= 2
       return `
-        <div class="concept-detail-row ${stuck ? 'is-stuck' : ''}">
+        <div class="concept-detail-row ${stuck ? 'is-stuck' : rapid ? 'is-rapid' : ''}">
           <div class="concept-detail-head">
-            <span class="cb-name">${escapeHtml(label(id))}</span>
-            <span class="cb-pct">${Math.round(c.mastery * 100)}%</span>
+            <span class="cb-name">
+              ${rapid ? '⚡ ' : ''}${escapeHtml(label(id))}
+              ${rapid ? '<span class="tag-badge" style="color:#10B981; border-color:rgba(16,185,129,0.3); font-size:10px; margin-left:6px;">Rapid Acquisition</span>' : ''}
+              ${stuck ? '<span class="tag-badge" style="color:#EF4444; border-color:rgba(239,68,68,0.3); font-size:10px; margin-left:6px;">Bottleneck Loop</span>' : ''}
+            </span>
+            <span class="cb-pct" style="${rapid ? 'color:#10B981;' : stuck ? 'color:#EF4444;' : ''}">${Math.round(c.mastery * 100)}%</span>
           </div>
-          <div class="cb-track"><div class="cb-fill ${c.mastery >= MASTERY_THRESHOLD ? 'high' : 'low'}" style="width:${c.mastery * 100}%"></div></div>
+          <div class="cb-track"><div class="cb-fill ${c.mastery >= MASTERY_THRESHOLD ? 'high' : 'low'}" style="width:${c.mastery * 100}%; ${rapid ? 'background:#10B981;' : ''}"></div></div>
           <div class="empty-note">
             ${c.correct} correct \u00b7 ${c.incorrect} incorrect \u00b7 last active ${relativeTime(c.lastSeen)}
-            ${stuck ? ' \u00b7 <span class="at-risk">keeps getting stuck here</span>' : ''}
+            ${stuck ? ' \u00b7 <span class="at-risk">repeating error loops</span>' : ''}
           </div>
           ${c.evidence.length ? `<div class="evidence-log">${c.evidence.map((e) => `<div class="evidence-line">${escapeHtml(e)}</div>`).join('')}</div>` : ''}
         </div>
@@ -901,14 +1096,34 @@ function studentDetailHtml(student: UserProfile, p: ProgressSnapshot): string {
 
   return `
     <div class="student-report">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <div>
+          <span style="font-weight:600; font-size:15px; color:#F1F5F9;">Cognitive &amp; Progression Dossier</span>
+          <span class="empty-note" style="margin-left:8px;">Student ID: ${escapeHtml(student.studentTag || 'N/A')}</span>
+          ${rapidConcepts.length > 0 ? `<div style="font-size:12px; color:#10B981; margin-top:3px;">⚡ Rapidly acquiring: <strong>${rapidConcepts.map(([id]) => escapeHtml(label(id))).join(', ')}</strong></div>` : ''}
+        </div>
+        ${velocityBadge}
+      </div>
+
       <div class="dash-grid">
         <div class="teach-card"><div class="teach-tag">RANK</div><div class="class-figure" style="font-size:20px">${escapeHtml(p.rank)}</div></div>
         <div class="teach-card"><div class="teach-tag">XP</div><div class="class-figure">${p.xp}</div></div>
         <div class="teach-card"><div class="teach-tag">BADGES</div><div class="class-figure">${p.badgesEarned}/${p.totalBadges}</div></div>
         <div class="teach-card"><div class="teach-tag">DAYS SURVIVED</div><div class="class-figure">${p.daysSurvived}</div></div>
       </div>
+
+      <div class="class-panel" style="margin: 12px 0; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:#94A3B8; margin-bottom:6px;">
+          <span>🧠 Neurodivergent Multi-Modal Learning Profile:</span>
+          <span><strong>Visual ${Math.round(style.visual * 100)}%</strong> \u00b7 <strong>Kinesthetic ${Math.round(style.kinesthetic * 100)}%</strong> \u00b7 <strong>Reading ${Math.round(style.readingWriting * 100)}%</strong></span>
+        </div>
+        <div style="font-size:12px; color:#CBD5E1;">
+          ${style.visual > 0.4 ? '💡 <em>Visual Learner:</em> Benefits most from schematics, topology overlays, and live graph telemetry.' : style.kinesthetic > 0.4 ? '💡 <em>Kinesthetic Learner:</em> Thrives on active breadboard experimentation, slider tuning, and iterative trial.' : '💡 <em>Textual Learner:</em> Excels with concise datasheets, formulas, and structured technical documentation.'}
+        </div>
+      </div>
+
       ${engaged.length ? conceptRows : `<p class="empty-note">No concept activity yet.</p>`}
-      <button class="ghost-button student-ai-btn" data-uid="${student.uid}" style="margin-top:10px">Generate AI recommendation for ${escapeHtml((student.displayName || 'Student').split(' ')[0])}</button>
+      <button class="ghost-button student-ai-btn" data-uid="${student.uid}" style="margin-top:10px">Generate AI Differentiated Intervention for ${escapeHtml((student.displayName || 'Student').split(' ')[0])}</button>
       <div id="studentAIResult-${student.uid}"></div>
     </div>
   `

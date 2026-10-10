@@ -1,30 +1,36 @@
 // ---------------------------------------------------------------------------
 // Vercel serverless function: /api/ask
 //
-// Same job as the old Netlify function — holds the API key server-side so it
-// never reaches the browser. This is a Vercel Edge Function, using the same
-// Web-standard Request/Response the Netlify version used, so the logic is
-// unchanged; only the export shape and env var lookup differ slightly.
+// Powered by Google Gemini (with fallbacks for Groq / OpenAI).
+// Holds the API key server-side so it never reaches the browser.
 //
-// Set the key once, in the Vercel dashboard:
+// Set your key in the Vercel dashboard:
 //   Project -> Settings -> Environment Variables -> Add
-//     GROQ_API_KEY = gsk_your_key_here
+//     GEMINI_API_KEY = AIzaSy... (or GROQ_API_KEY = gsk_...)
 // ---------------------------------------------------------------------------
 
 export const config = { runtime: 'edge' }
 
-const ENDPOINT = process.env.AI_ENDPOINT || 'https://api.groq.com/openai/v1/chat/completions'
-const MODEL = process.env.AI_MODEL || 'openai/gpt-oss-120b'
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+const GEMINI_MODEL = 'gemini-1.5-flash'
+
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
+const GROQ_MODEL = 'openai/gpt-oss-120b'
 
 export default async function handler(request) {
   if (request.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 })
   }
 
-  const key = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+  const groqKey = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY
+  const key = geminiKey || groqKey
+
   if (!key) {
     return new Response(
-      JSON.stringify({ error: 'No API key configured on the server.' }),
+      JSON.stringify({
+        error: 'No API key configured on the server. Please set GEMINI_API_KEY or GROQ_API_KEY in Vercel settings.',
+      }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
@@ -36,15 +42,35 @@ export default async function handler(request) {
     return new Response('Bad request', { status: 400 })
   }
 
+  // Determine endpoint and model
+  let endpoint = process.env.AI_ENDPOINT
+  let defaultModel = GEMINI_MODEL
+
+  if (!endpoint) {
+    if (geminiKey) {
+      endpoint = GEMINI_ENDPOINT
+      defaultModel = GEMINI_MODEL
+    } else {
+      endpoint = GROQ_ENDPOINT
+      defaultModel = GROQ_MODEL
+    }
+  }
+
+  // If user/caller passed a model that starts with openai/ but we are using Gemini, adapt to gemini-1.5-flash
+  let requestedModel = body.model || process.env.AI_MODEL || defaultModel
+  if (endpoint.includes('generativelanguage.googleapis.com') && requestedModel.startsWith('openai/')) {
+    requestedModel = GEMINI_MODEL
+  }
+
   const payload = {
-    model: body.model || MODEL,
-    messages: Array.isArray(body.messages) ? body.messages.slice(-12) : [],
-    temperature: 0.4,
-    max_tokens: 320,
+    model: requestedModel,
+    messages: Array.isArray(body.messages) ? body.messages.slice(-16) : [],
+    temperature: typeof body.temperature === 'number' ? body.temperature : 0.4,
+    max_tokens: typeof body.max_tokens === 'number' ? body.max_tokens : 1024,
   }
 
   try {
-    const upstream = await fetch(ENDPOINT, {
+    const upstream = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -65,3 +91,4 @@ export default async function handler(request) {
     )
   }
 }
+

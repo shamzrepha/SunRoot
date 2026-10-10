@@ -66,7 +66,7 @@ export async function renderStudySetViewer(root: HTMLElement, onBack: () => void
         <!-- Top Navigation & Set Header -->
         <div class="notebook-header-row">
           <button class="ghost-button small" id="backBtn">← Back to Class</button>
-          <div class="notebook-badge-pill">📚 NotebookLM Study Engine</div>
+          <div class="notebook-badge-pill">🔬 Personal Study Lab</div>
         </div>
 
         <div class="lab-header notebook-hero-head">
@@ -80,7 +80,7 @@ export async function renderStudySetViewer(root: HTMLElement, onBack: () => void
           </div>
         </div>
 
-        <!-- 6 NotebookLM Mode Tabs -->
+        <!-- 6 Personal Study Lab Mode Tabs -->
         <div class="mode-switch notebook-tabs">
           <button type="button" class="mode-tab${tab === 'notes' ? ' is-active' : ''}" data-tab="notes">📄 Study Guide</button>
           <button type="button" class="mode-tab${tab === 'audio' ? ' is-active' : ''}" data-tab="audio">🎙️ Audio Deep Dive</button>
@@ -183,7 +183,7 @@ export async function renderStudySetViewer(root: HTMLElement, onBack: () => void
       <div class="class-panel notebook-audio-panel">
         <div class="audio-panel-header">
           <div>
-            <h2>NotebookLM Deep Dive Conversation</h2>
+            <h2>Personal Study Lab Deep Dive Discussion</h2>
             <p class="empty-note">AI-generated audio discussion between Host (Alex) and Domain Expert (Dr. Sam) summarizing this study set.</p>
           </div>
           <div class="audio-controls-row">
@@ -303,7 +303,7 @@ export async function renderStudySetViewer(root: HTMLElement, onBack: () => void
         <div class="chat-thread" id="chatThread">
           ${chatMessages.map((m) => `
             <div class="chat-msg ${m.sender === 'user' ? 'user-msg' : 'ai-msg'}">
-              <div class="msg-author">${m.sender === 'user' ? 'You' : 'NotebookLM Tutor'}</div>
+              <div class="msg-author">${m.sender === 'user' ? 'You' : 'Personal Study Lab AI'}</div>
               <div class="msg-content">${escapeHtml(m.text)}</div>
               ${m.citations && m.citations.length ? `
                 <div class="msg-citations">Citations: ${m.citations.map((c) => `<span class="cite-chip">${escapeHtml(c)}</span>`).join('')}</div>
@@ -627,7 +627,7 @@ export async function renderStudySetViewer(root: HTMLElement, onBack: () => void
   // SOURCE UPLOADER MODAL / PROMPT
   // ---------------------------------------------------------------------------
   function promptAddSourceDoc() {
-    const raw = prompt('Paste additional course lecture notes or textbook syllabus to ground this study set with NotebookLM:')
+    const raw = prompt('Paste additional course lecture notes or textbook syllabus to ground this study set in your Personal Study Lab:')
     if (!raw || !raw.trim()) return
 
     toast('AI is digesting your new source document into briefing, audio script, and quizzes…', 'info')

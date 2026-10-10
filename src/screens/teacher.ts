@@ -25,6 +25,11 @@ export function renderTeacher(root: HTMLElement) {
   const weakest = [...engaged].sort((a, b) => masteryOf(a.id) - masteryOf(b.id))[0]
   const strongest = [...engaged].sort((a, b) => masteryOf(b.id) - masteryOf(a.id))[0]
   const struggling = engaged.filter((c) => masteryOf(c.id) < 0.5)
+  const rapid = engaged.filter((c) => {
+    const st = learner.concepts[c.id]
+    const acc = st.correct + st.incorrect > 0 ? st.correct / (st.correct + st.incorrect) : 0
+    return masteryOf(c.id) >= 0.72 && acc >= 0.7 && st.correct >= 2
+  })
 
   root.innerHTML = `
     <div class="screen teacher-screen">
@@ -103,6 +108,24 @@ export function renderTeacher(root: HTMLElement) {
                    <p class="teach-body">${recommendation(weakest.id)}</p>`
                 : `<p class="teach-body">Nothing to recommend yet — no concept has been
                      exercised. Ask the class to build and check one circuit, then return here.</p>`
+            }
+          </div>
+
+          <div class="teach-card" style="border-left: 3px solid #10B981;">
+            <div class="teach-tag" style="color: #10B981;">⚡ RAPID PROGRESSION (ACCELERATION)</div>
+            ${
+              rapid.length
+                ? `<ul class="miscon-list">
+                    ${rapid
+                      .map(
+                        (c) => `<li>
+                          <strong style="color: #10B981;">⚡ ${c.label}</strong> at ${Math.round(masteryOf(c.id) * 100)}%
+                          <span class="miscon-quote">Acquisition velocity: high accuracy, zero cognitive deadlocks.</span>
+                        </li>`,
+                      )
+                      .join('')}
+                  </ul>`
+                : `<p class="teach-body">No concepts have reached accelerated acquisition velocity yet (requires \u226572% mastery with high accuracy).</p>`
             }
           </div>
 

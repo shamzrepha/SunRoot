@@ -52,8 +52,8 @@ export interface AIConfig {
 }
 
 const DEFAULTS: AIConfig = {
-  endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-  model: 'openai/gpt-oss-120b',
+  endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  model: 'gemini-1.5-flash',
   apiKey: '',
   // Always the deployed function. Overriding this is a developer action, not
   // something the interface asks anyone to do.
@@ -247,9 +247,9 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
       const body = await res.text().catch(() => '')
       const detail =
         res.status === 401
-          ? 'the API key was rejected (401). Check the key, or that it is set as GROQ_API_KEY on the server if you are using the proxy.'
+          ? 'the API key was rejected (401). Check the key, or that it is set as GEMINI_API_KEY (or GROQ_API_KEY) on the server if you are using the proxy.'
           : res.status === 404
-            ? `nothing is listening at ${url} (404). If this is the Netlify proxy, the function may not be deployed — check that netlify/functions/ask.js is committed and that netlify.toml has functions = "netlify/functions".`
+            ? `nothing is listening at ${url} (404). If this is the Vercel proxy, check that /api/ask is deployed and accessible.`
             : res.status === 400
               ? `the request was rejected (400). The model name "${cfg.model}" may not exist at this endpoint. ${body.slice(0, 160)}`
               : res.status === 429

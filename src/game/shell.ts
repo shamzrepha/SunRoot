@@ -43,14 +43,18 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
       <aside class="sidebar" id="sidebarRail">
         <div class="brand">
           <div class="brand-mark">
-            <svg viewBox="0 0 24 24" width="26" height="26">
-              <circle cx="12" cy="8" r="4" fill="#F5B942" />
-              <path d="M12 21c0-5 2-8 7-9-5-1-7-4-7-9-0 5-2 8-7 9 5 1 7 4 7 9z" fill="#4fd67a"/>
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+              <circle cx="12" cy="7" r="3.5" fill="#F59E0B" />
+              <path d="M12 1.5v1.8M4.9 4.2l1.3 1.3M19.1 4.2l-1.3 1.3M2 7h1.8M20.2 7H22" stroke="#F59E0B" stroke-width="1.6" stroke-linecap="round" />
+              <path d="M12 10.5v5.5" stroke="#38BDF8" stroke-width="2" stroke-linecap="round" />
+              <path d="M5 16h14" stroke="#38BDF8" stroke-width="2" stroke-linecap="round" />
+              <path d="M8 19h8" stroke="#38BDF8" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M10.5 22h3" stroke="#38BDF8" stroke-width="1.6" stroke-linecap="round" />
             </svg>
           </div>
           <div>
             <div class="brand-name">SUNROOT</div>
-            <div class="brand-tag">Cyber-Physical AgTech Twin</div>
+            <div class="brand-tag">Cyber-Physical Engineering</div>
           </div>
         </div>
 
@@ -142,7 +146,6 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
           </div>
         </header>
 
-        <div class="hud" id="hud"></div>
         <div class="view" id="view"></div>
       </div>
 
@@ -246,7 +249,7 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
 
   return {
     view: root.querySelector<HTMLDivElement>('#view')!,
-    hud: root.querySelector<HTMLDivElement>('#hud')!,
+    hud: root.querySelector<HTMLDivElement>('#hud'),
   }
 }
 
@@ -382,24 +385,14 @@ export function renderNav(items: NavItem[], active: Screen) {
   })
 }
 
-export function renderHud(fields: { label: string; value: string; tone?: string }[]) {
-  const hud = document.querySelector<HTMLElement>('#hud')
-  if (!hud) return
-  hud.innerHTML = fields
-    .map(
-      (f) => `
-      <div class="hud-chip ${f.tone ? 'tone-' + f.tone : ''}">
-        <span class="hud-label">${f.label}</span>
-        <strong class="hud-value">${f.value}</strong>
-      </div>`
-    )
-    .join('')
+export function renderHud(_fields: { label: string; value: string; tone?: string }[]) {
+  // Telemetry is rendered strictly inside specific practical simulation views (e.g. farm.ts)
 }
 
-/** The live telemetry bar only makes sense while actually looking at the farm — hidden everywhere else. */
-export function setHudVisible(visible: boolean) {
+/** Telemetry HUD is isolated to farm screen */
+export function setHudVisible(_visible: boolean) {
   const hud = document.querySelector<HTMLElement>('#hud')
-  if (hud) hud.hidden = !visible
+  if (hud) hud.style.display = 'none'
 }
 
 export function updateRankUi() {

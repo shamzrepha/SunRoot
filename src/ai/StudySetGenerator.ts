@@ -11,8 +11,8 @@ export interface StudySetGenerationResult {
   error?: string
 }
 
-const NOTEBOOK_SYSTEM_PROMPT =
-  'You are an expert educational AI and cognitive tutor (similar to NotebookLM). ' +
+const STUDY_SET_SYSTEM_PROMPT =
+  'You are an expert educational AI and cognitive tutor in SunRoot Personal Study Lab. ' +
   'Given raw course notes, textbook excerpts, or lecture slides, you produce a comprehensive, grounded study package. ' +
   'Respond with ONLY a valid JSON object (no markdown code fences, no preamble) with exactly this structure:\n' +
   '{\n' +
@@ -67,7 +67,7 @@ export async function generateStudySet(sourceText: string): Promise<StudySetGene
       body: JSON.stringify({
         model: cfg.model,
         messages: [
-          { role: 'system', content: NOTEBOOK_SYSTEM_PROMPT },
+          { role: 'system', content: STUDY_SET_SYSTEM_PROMPT },
           { role: 'user', content: trimmedSource },
         ],
         temperature: 0.3,
@@ -92,7 +92,7 @@ export async function generateStudySet(sourceText: string): Promise<StudySetGene
   }
 }
 
-/** NotebookLM Chat with Sources: Answers queries grounded strictly in provided notes */
+/** Personal Study Lab Grounded Chat: Answers queries grounded strictly in provided notes */
 export async function askSourceNotes(sourceText: string, query: string): Promise<{ answer: string; citations: string[] }> {
   const cfg = loadConfig()
   const url = cfg.proxyUrl || cfg.endpoint
@@ -107,7 +107,7 @@ export async function askSourceNotes(sourceText: string, query: string): Promise
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (!cfg.proxyUrl && cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
 
-    const prompt = `You are a NotebookLM grounded tutor. Answer the user's question using ONLY the provided course notes.\n\nCOURSE NOTES:\n${sourceText.slice(0, 10000)}\n\nUSER QUESTION: ${query}\n\nProvide a clear, pedagogical answer followed by direct quotes/citations from the notes.`
+    const prompt = `You are a Personal Study Lab grounded tutor. Answer the user's question using ONLY the provided course notes.\n\nCOURSE NOTES:\n${sourceText.slice(0, 10000)}\n\nUSER QUESTION: ${query}\n\nProvide a clear, pedagogical answer followed by direct quotes/citations from the notes.`
     const res = await fetch(url, {
       method: 'POST',
       headers,

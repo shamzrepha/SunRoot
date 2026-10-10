@@ -26,19 +26,23 @@ export function renderLogin(root: HTMLElement, onAuthenticated: () => void) {
         <div class="landing-content">
           <div class="landing-brand">
             <div class="landing-logo">
-              <svg viewBox="0 0 24 24" width="34" height="34">
-                <circle cx="12" cy="9" r="4.5" fill="#F5B942" />
-                <path d="M12 21c0-5 2-8 7-9-5-1-7-4-7-9-0 5-2 8-7 9 5 1 7 4 7 9z" fill="#4FD67A" />
+              <svg viewBox="0 0 24 24" width="34" height="34" fill="none">
+                <circle cx="12" cy="7" r="3.5" fill="#F59E0B" />
+                <path d="M12 1.5v1.8M4.9 4.2l1.3 1.3M19.1 4.2l-1.3 1.3M2 7h1.8M20.2 7H22" stroke="#F59E0B" stroke-width="1.6" stroke-linecap="round" />
+                <path d="M12 10.5v5.5" stroke="#38BDF8" stroke-width="2" stroke-linecap="round" />
+                <path d="M5 16h14" stroke="#38BDF8" stroke-width="2" stroke-linecap="round" />
+                <path d="M8 19h8" stroke="#38BDF8" stroke-width="1.8" stroke-linecap="round" />
+                <path d="M10.5 22h3" stroke="#38BDF8" stroke-width="1.6" stroke-linecap="round" />
               </svg>
               <span>SunRoot</span>
             </div>
-            <span class="landing-badge">Interactive STEM &amp; AgTech</span>
+            <span class="landing-badge">Cyber-Physical Systems &amp; Engineering</span>
           </div>
 
           <div class="landing-hero-text">
-            <h2>Build smart farms.<br>Master real electronics.</h2>
+            <h2>Grounded Engineering.<br>Simulated in Real Time.</h2>
             <p>
-              An interactive digital-twin learning platform where you wire virtual circuits, write block-based automation code, and cultivate thriving smart agriculture systems in real time.
+              An institutional cyber-physical digital-twin learning platform where students wire breadboards, model renewable power, program automation loops, and learn with grounded AI study labs.
             </p>
           </div>
 

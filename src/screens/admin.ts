@@ -1,5 +1,5 @@
 import { session } from '../accounts/Session'
-import { listClassSuggestions, markSuggestionReviewed } from '../accounts/ClassroomService'
+import { listClassSuggestions, markSuggestionReviewed, resetDatabaseToSingleClassroom } from '../accounts/ClassroomService'
 import { fetchStats, fetchAllUsers, removeUserAccess } from '../accounts/AdminService'
 import type { UserStats } from '../accounts/AdminService'
 import { listMessageReports, dismissReport, removeReportedMessage } from '../accounts/MessageService'
@@ -56,6 +56,7 @@ export async function renderAdmin(root: HTMLElement) {
       })
     })
 
+    if (tab === 'overview') wireOverview()
     if (tab === 'users') wireUsers()
     if (tab === 'suggestions') wireSuggestions()
     if (tab === 'reports') wireReports()
@@ -71,7 +72,41 @@ export async function renderAdmin(root: HTMLElement) {
         <div class="teach-card"><div class="teach-tag">CLASSROOMS</div><div class="class-figure">${s.totalClassrooms}</div></div>
         <div class="teach-card"><div class="teach-tag">TEAMS</div><div class="class-figure">${s.totalTeams}</div></div>
       </div>
+
+      <div class="class-panel" style="margin-top: 20px;">
+        <h2>Institutional Database Maintenance</h2>
+        <p class="empty-note">
+          Clean up test records and enforce that only <strong>1 single canonical classroom</strong> (<em>SunRoot Cyber-Physical Systems &amp; Engineering</em>) exists on the database.
+        </p>
+        <button class="primary-button" id="resetClassroomsBtn" style="background: linear-gradient(135deg, #EF4444 0%, #B91C1C 100%); border-color: #EF4444; margin-top: 10px;">
+          Reset to 1 Single Canonical Class
+        </button>
+        <p class="empty-note" id="resetDbStatus" style="margin-top: 10px; font-weight: 500;"></p>
+      </div>
     `
+  }
+
+  function wireOverview() {
+    const btn = root.querySelector<HTMLButtonElement>('#resetClassroomsBtn')
+    const statusEl = root.querySelector<HTMLElement>('#resetDbStatus')
+    if (!btn || !statusEl) return
+
+    btn.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to prune all auxiliary classes and leave only 1 canonical class on the database?')) return
+      btn.disabled = true
+      btn.textContent = 'Resetting database\u2026'
+      statusEl.textContent = 'Contacting database\u2026'
+      try {
+        const res = await resetDatabaseToSingleClassroom()
+        stats.totalClassrooms = 1
+        statusEl.innerHTML = `<span style="color: #10B981;">✓ ${escapeHtml(res.message)}</span>`
+        btn.textContent = 'Database Reset Done'
+      } catch (err: any) {
+        statusEl.innerHTML = `<span style="color: #EF4444;">Error resetting database: ${escapeHtml(err?.message || 'unknown error')}</span>`
+        btn.disabled = false
+        btn.textContent = 'Reset to 1 Single Canonical Class'
+      }
+    })
   }
 
   function paintUsers(all: UserProfile[], q: string, role: 'all' | UserProfile['role']) {
