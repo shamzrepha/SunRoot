@@ -1,0 +1,6 @@
+[debug] [2026-10-10T16:46:49.792Z] ----------------------------------------------------------------------
+[debug] [2026-10-10T16:46:49.797Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\shamz\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js projects:list
+[debug] [2026-10-10T16:46:49.798Z] CLI Version:   15.29.0
+[debug] [2026-10-10T16:46:49.798Z] Platform:      win32
+[debug] [2026-10-10T16:46:49.798Z] Node Version:  v24.18.1
+[debug] [2026-10-10T16:46:49.799Z] Detected Agent: antigravity
