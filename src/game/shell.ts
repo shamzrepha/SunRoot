@@ -9,6 +9,8 @@ import { getTeam, shipTeamState } from '../accounts/TeamService'
 import { buildSnapshot, applySnapshot } from '../persistence/SaveManager'
 import { logOut } from '../accounts/AuthService'
 import { listNotificationsForUser } from '../accounts/NotificationService'
+import { getStreakState, clockInToday } from '../accounts/StreakService'
+import { loadConfig, saveConfig, testGeminiConnection } from '../ai/AIProvider'
 
 export interface NavItem {
   group?: string
@@ -114,12 +116,14 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
               <span class="shell-breadcrumb-page" id="topbarTitle">Dashboard</span>
             </div>
           </div>
-          <div class="shell-topbar-right">
-            <div class="shell-streak-pill" title="Daily Engineering Streak">
+            <button class="shell-streak-pill" id="topbarStreakBtn" title="Daily Engineering Streak (Duolingo Style)">
               <span class="streak-icon">🔥</span>
-              <span class="streak-label">3-Day Streak</span>
-            </div>
+              <span class="streak-label" id="topbarStreakLabel">0-Day Streak</span>
+            </button>
             <div class="topbar-controls">
+              <button class="topbar-icon-btn" id="topbarAiKeyBtn" title="Google Gemini AI Configuration">
+                <span style="font-weight:800; font-size:11px; color:#38bdf8;">AI</span>
+              </button>
               <button class="topbar-icon-btn" id="topbarSoundBtn" title="Toggle Sound">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
               </button>
@@ -243,15 +247,216 @@ export function mountShell(root: HTMLElement, navigate: (s: Screen) => void) {
     }
   })
 
+  // Streak pill & Duolingo modal
+  root.querySelector<HTMLButtonElement>('#topbarStreakBtn')?.addEventListener('click', () => {
+    openStreakModal()
+  })
+
+  // Gemini AI Key modal
+  root.querySelector<HTMLButtonElement>('#topbarAiKeyBtn')?.addEventListener('click', () => {
+    openGeminiKeyModal()
+  })
+
+  window.addEventListener('sunroot:streak-updated', () => {
+    updateStreakPill()
+  })
+
   syncSoundButtons()
   syncVoiceButtons()
   updateProfileChip()
+  updateStreakPill()
 
   return {
     view: root.querySelector<HTMLDivElement>('#view')!,
     hud: root.querySelector<HTMLDivElement>('#hud'),
   }
 }
+
+function escapeHtml(s: string): string {
+  const d = document.createElement('div')
+  d.textContent = s
+  return d.innerHTML
+}
+
+export function updateStreakPill() {
+  const profile = session.profile
+  const streakState = getStreakState(profile)
+  const btn = document.querySelector<HTMLButtonElement>('#topbarStreakBtn')
+  const label = document.querySelector<HTMLElement>('#topbarStreakLabel')
+  if (!btn || !label) return
+
+  if (streakState.hasClockedInToday) {
+    label.textContent = `${streakState.currentStreak}-Day Streak`
+    btn.classList.add('is-active')
+    btn.classList.remove('needs-clockin')
+    btn.title = `🔥 Active Streak: ${streakState.currentStreak} Days (Clocked In)`
+  } else {
+    label.textContent = `0-Day Streak • Clock In!`
+    btn.classList.add('needs-clockin')
+    btn.classList.remove('is-active')
+    btn.title = `🔥 Clock in today to keep your streak going!`
+  }
+}
+
+export function openStreakModal() {
+  const shell = document.querySelector<HTMLElement>('#shellRoot')
+  if (!shell) return
+  shell.querySelector('.streak-modal-backdrop')?.remove()
+
+  const profile = session.profile
+  const streakState = getStreakState(profile)
+
+  const backdrop = document.createElement('div')
+  backdrop.className = 'modal-backdrop streak-modal-backdrop'
+  backdrop.innerHTML = `
+    <div class="modal-box streak-modal-box" style="max-width: 440px; text-align: center; padding: 28px 24px;">
+      <div style="font-size: 54px; margin-bottom: 8px;">🔥</div>
+      <h2 style="margin: 0 0 6px; font-size: 22px; font-weight: 800;">Daily Engineering Streak</h2>
+      <p style="color: var(--campus-text-muted); font-size: 13px; margin: 0 0 20px;">
+        Duolingo-style daily clock-in keeps your cyber-physical engineering habit sharp.
+      </p>
+
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div>
+          <div style="font-size: 11px; text-transform: uppercase; color: var(--campus-text-muted);">Current Streak</div>
+          <div style="font-size: 26px; font-weight: 900; color: #f97316;">${streakState.displayStreak} <span style="font-size: 13px;">Days</span></div>
+        </div>
+        <div>
+          <div style="font-size: 11px; text-transform: uppercase; color: var(--campus-text-muted);">Longest Record</div>
+          <div style="font-size: 26px; font-weight: 900; color: #38bdf8;">${streakState.longestStreak} <span style="font-size: 13px;">Days</span></div>
+        </div>
+      </div>
+
+      <div id="streakModalActionArea">
+        ${streakState.hasClockedInToday ? `
+          <div style="background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+            <div style="color: #10b981; font-weight: 700; font-size: 14px;">✅ You are clocked in for today!</div>
+            <div style="font-size: 12px; color: var(--campus-text-muted); margin-top: 4px;">Come back tomorrow to increment your streak to ${streakState.currentStreak + 1} days.</div>
+          </div>
+        ` : `
+          <button class="primary-button" id="clockInSubmitBtn" style="width: 100%; padding: 14px; font-size: 15px; font-weight: 700; margin-bottom: 12px;">
+            ⚡ Clock In Today (+25 XP)
+          </button>
+          <div style="font-size: 12px; color: #f59e0b;">${streakState.statusText}</div>
+        `}
+      </div>
+
+      <button class="ghost-button small" id="closeStreakModalBtn" style="margin-top: 14px; width: 100%;">Close</button>
+    </div>
+  `
+
+  shell.appendChild(backdrop)
+
+  backdrop.querySelector('#closeStreakModalBtn')?.addEventListener('click', () => backdrop.remove())
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) backdrop.remove()
+  })
+
+  backdrop.querySelector('#clockInSubmitBtn')?.addEventListener('click', async () => {
+    const btn = backdrop.querySelector<HTMLButtonElement>('#clockInSubmitBtn')!
+    btn.disabled = true
+    btn.textContent = 'Clocking In\u2026'
+    const res = await clockInToday()
+    if (res.success) {
+      toast(res.message, 'success')
+      sfx.badge()
+      updateStreakPill()
+      backdrop.remove()
+    } else {
+      toast(res.message, 'info')
+      btn.disabled = false
+      btn.textContent = '⚡ Clock In Today'
+    }
+  })
+}
+
+export function openGeminiKeyModal() {
+  const shell = document.querySelector<HTMLElement>('#shellRoot')
+  if (!shell) return
+  shell.querySelector('.gemini-modal-backdrop')?.remove()
+
+  const cfg = loadConfig()
+  const hasCustomKey = !!cfg.apiKey
+
+  const backdrop = document.createElement('div')
+  backdrop.className = 'modal-backdrop gemini-modal-backdrop'
+  backdrop.innerHTML = `
+    <div class="modal-box" style="max-width: 480px; text-align: left; padding: 26px 24px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <h2 style="margin: 0; font-size: 19px; display: flex; align-items: center; gap: 8px;">
+          <span style="color: #38bdf8;">⚡</span> Google Gemini AI
+        </h2>
+        <span class="tag-badge" style="background: rgba(56,189,248,0.15); color: #38bdf8;">gemini-1.5-flash</span>
+      </div>
+
+      <p style="color: var(--campus-text-muted); font-size: 13px; line-height: 1.5; margin: 0 0 16px;">
+        SunRoot uses Google Gemini for real-time tutoring, course syllabus synthesis, Study Lab briefings, audio podcasts, and flashcard quizzes.
+      </p>
+
+      <div style="background: ${hasCustomKey ? 'rgba(16,185,129,0.1)' : 'rgba(56,189,248,0.08)'}; border: 1px solid ${hasCustomKey ? 'rgba(16,185,129,0.3)' : 'rgba(56,189,248,0.2)'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px;">
+        <strong>Active Route:</strong> ${hasCustomKey ? '🟢 Custom Personal Gemini Key (attached to all requests)' : '🌐 Deployed Vercel Serverless Proxy (/api/ask)'}
+      </div>
+
+      <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--campus-text-muted);">
+        Your Gemini API Key (starts with AIzaSy...):
+      </label>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <input type="password" id="geminiKeyField" value="${escapeHtml(cfg.apiKey || '')}" placeholder="AIzaSy..." style="flex: 1; padding: 9px 12px; font-family: monospace; font-size: 13px;" />
+        <button class="ghost-button small" id="toggleKeyVisibilityBtn" type="button">👁️</button>
+      </div>
+
+      <div id="geminiTestStatus" style="font-size: 12px; min-height: 20px; margin-bottom: 16px; color: var(--campus-text-muted);"></div>
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+        <button class="ghost-button small" id="testKeyBtn">Test Connection</button>
+        ${hasCustomKey ? `<button class="ghost-button small danger-btn" id="clearKeyBtn">Clear Key</button>` : ''}
+        <button class="primary-button small" id="saveKeyBtn">Save Key</button>
+        <button class="ghost-button small" id="closeGeminiModalBtn">Cancel</button>
+      </div>
+    </div>
+  `
+
+  shell.appendChild(backdrop)
+
+  const keyInput = backdrop.querySelector<HTMLInputElement>('#geminiKeyField')!
+  const statusEl = backdrop.querySelector<HTMLElement>('#geminiTestStatus')!
+
+  backdrop.querySelector('#toggleKeyVisibilityBtn')?.addEventListener('click', () => {
+    keyInput.type = keyInput.type === 'password' ? 'text' : 'password'
+  })
+
+  backdrop.querySelector('#closeGeminiModalBtn')?.addEventListener('click', () => backdrop.remove())
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) backdrop.remove()
+  })
+
+  backdrop.querySelector('#saveKeyBtn')?.addEventListener('click', () => {
+    const val = keyInput.value.trim()
+    saveConfig({ apiKey: val })
+    toast(val ? 'Gemini API key saved in browser storage.' : 'Custom key removed. Using server proxy.', 'success')
+    backdrop.remove()
+  })
+
+  backdrop.querySelector('#clearKeyBtn')?.addEventListener('click', () => {
+    saveConfig({ apiKey: '' })
+    toast('Custom key removed. Using server proxy.', 'info')
+    backdrop.remove()
+  })
+
+  backdrop.querySelector('#testKeyBtn')?.addEventListener('click', async () => {
+    statusEl.textContent = 'Testing connection with gemini-1.5-flash\u2026'
+    statusEl.style.color = 'var(--campus-text-muted)'
+    const res = await testGeminiConnection(keyInput.value.trim())
+    if (res.success) {
+      statusEl.style.color = '#10b981'
+      statusEl.textContent = `✓ ${res.message}`
+    } else {
+      statusEl.style.color = '#ef4444'
+      statusEl.textContent = `✗ ${res.message}`
+    }
+  })
+}
+
 
 /** Refreshes the sidebar and topbar profile chip from current session. */
 export function updateProfileChip() {

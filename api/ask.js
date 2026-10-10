@@ -22,14 +22,15 @@ export default async function handler(request) {
     return new Response('Method not allowed', { status: 405 })
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+  const clientKey = request.headers.get('x-gemini-key') || (request.headers.get('authorization')?.startsWith('Bearer ') ? request.headers.get('authorization').replace(/^Bearer\s+/i, '').trim() : null)
+  const geminiKey = clientKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
   const groqKey = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY
   const key = geminiKey || groqKey
 
   if (!key) {
     return new Response(
       JSON.stringify({
-        error: 'No API key configured on the server. Please set GEMINI_API_KEY or GROQ_API_KEY in Vercel settings.',
+        error: 'No API key configured. Please enter your Gemini API key in the app Settings or set GEMINI_API_KEY in Vercel.',
       }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )

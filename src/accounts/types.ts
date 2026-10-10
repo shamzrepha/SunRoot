@@ -27,6 +27,12 @@ export interface UserProfile {
    * including by an existing admin, so there is no self-serve path to it.
    */
   isAdmin?: boolean
+  streak?: {
+    current: number
+    longest: number
+    lastClockInDate: string // YYYY-MM-DD
+    lastClockInTimestamp: number
+  }
 }
 
 export type DigitalTwinType =
@@ -35,6 +41,14 @@ export type DigitalTwinType =
   | 'robotics' // Mechatronics & Actuator Controls
   | 'hydraulics' // Water Treatment, Reservoirs & Valve Pressure
   | 'iot_circuits' // Virtual Breadboard, ADC & Logic Gate Bench
+
+export interface CourseModule {
+  id: string
+  title: string
+  description: string
+  durationMinutes?: number
+  conceptIds?: string[]
+}
 
 export interface Classroom {
   id: string
@@ -49,6 +63,9 @@ export interface Classroom {
   studentIds: string[]
   createdAt: number
   isDemo?: boolean
+  isPersonal?: boolean
+  hasWorkshop?: boolean
+  modules?: CourseModule[]
 }
 
 export type InviteStatus = 'pending' | 'accepted' | 'declined'
@@ -192,12 +209,14 @@ export interface FriendRequest {
   respondedAt?: number
 }
 
-export type LeaderboardCategory = 'mastery' | 'xp' | 'concepts'
+export type LeaderboardCategory = 'streak' | 'xp' | 'mastery' | 'concepts'
 
 export interface LeaderboardEntry {
   uid: string
   displayName: string
   value: number
+  streak?: number
+  xp?: number
 }
 
 export interface TeamLeaderboardEntry {

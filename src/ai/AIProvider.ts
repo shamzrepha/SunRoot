@@ -228,8 +228,10 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
   try {
     const url = cfg.proxyUrl || cfg.endpoint
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    // A proxy holds its own credentials; only the direct path sends a key.
-    if (!cfg.proxyUrl && cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
+    if (cfg.apiKey) {
+      headers['x-gemini-key'] = cfg.apiKey
+      if (!cfg.proxyUrl) headers.Authorization = `Bearer ${cfg.apiKey}`
+    }
 
     lastFailure = ''
     const res = await fetch(url, {
@@ -247,7 +249,7 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
       const body = await res.text().catch(() => '')
       const detail =
         res.status === 401
-          ? 'the API key was rejected (401). Check the key, or that it is set as GEMINI_API_KEY (or GROQ_API_KEY) on the server if you are using the proxy.'
+          ? 'the API key was rejected (401). Check the key, or that it is set as GEMINI_API_KEY on the server.'
           : res.status === 404
             ? `nothing is listening at ${url} (404). If this is the Vercel proxy, check that /api/ask is deployed and accessible.`
             : res.status === 400
@@ -271,15 +273,97 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
     proxyReachable = true
     return { text: text.trim(), source: 'model' }
   } catch (err) {
-    // A browser fetch that fails outright is almost always CORS: most model
-    // providers refuse requests sent straight from a web page, which is exactly
-    // what the serverless proxy exists to avoid.
     const message = (err as Error)?.message ?? 'unknown error'
     const detail = cfg.proxyUrl
-      ? `the proxy at ${cfg.proxyUrl} could not be reached (${message}). On a local dev server the Netlify function does not exist — it only works on the deployed site, or under "netlify dev".`
-      : `the request never completed (${message}). This is usually CORS: browsers are blocked from calling model APIs directly. Use the proxy URL /.netlify/functions/ask instead of an API key.`
+      ? `the proxy at ${cfg.proxyUrl} could not be reached (${message}).`
+      : `the request never completed (${message}).`
     lastFailure = detail
     if (cfg.proxyUrl && !cfg.apiKey) proxyReachable = false
     return { text: quiet(question, detail), source: 'local', reason: detail }
   }
 }
+
+/** General-purpose AI completion runner using either user Gemini key or server proxy. */
+export async function callAICompletion(
+  messages: Array<{ role: string; content: string }>,
+  maxTokens = 1200,
+  temperature = 0.3,
+): Promise<string> {
+  const cfg = loadConfig()
+  const url = cfg.proxyUrl || cfg.endpoint
+  if (!url) throw new Error('No AI endpoint configured.')
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cfg.apiKey) {
+    headers['x-gemini-key'] = cfg.apiKey
+    if (!cfg.proxyUrl) headers.Authorization = `Bearer ${cfg.apiKey}`
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: cfg.model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  })
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`AI request failed (HTTP ${res.status}): ${errText.slice(0, 150)}`)
+  }
+
+  const data = await res.json()
+  const content = data?.choices?.[0]?.message?.content
+  if (!content) throw new Error('Model returned empty response content.')
+  return content.trim()
+}
+
+/** Quick verification check to test whether Gemini is accessible with key */
+export async function testGeminiConnection(keyToTest?: string): Promise<{ success: boolean; message: string }> {
+  const cfg = loadConfig()
+  const activeKey = keyToTest !== undefined ? keyToTest.trim() : cfg.apiKey
+  const url = cfg.proxyUrl || cfg.endpoint
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (activeKey) {
+    headers['x-gemini-key'] = activeKey
+    if (!cfg.proxyUrl) headers.Authorization = `Bearer ${activeKey}`
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [{ role: 'user', content: 'Respond with exactly: SunRoot AI Online' }],
+        max_tokens: 30,
+        temperature: 0.1,
+      }),
+    })
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      return {
+        success: false,
+        message: `HTTP ${res.status}: ${errBody.slice(0, 120) || 'Check that your Gemini key has access to gemini-1.5-flash.'}`,
+      }
+    }
+
+    const data = await res.json()
+    const reply = data?.choices?.[0]?.message?.content || 'Ready'
+    return {
+      success: true,
+      message: `Connection verified! Model (${cfg.model}) replied: "${reply.trim()}"`,
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Network error reaching ${url}: ${err?.message || 'Failed to connect'}`,
+    }
+  }
+}
+

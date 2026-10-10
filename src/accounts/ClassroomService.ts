@@ -57,6 +57,75 @@ export async function ensureDemoClassroomExists(): Promise<void> {
   }
 }
 
+const LOCAL_PERSONAL_KEY = 'sunroot.personal.classrooms'
+
+function getLocalPersonalClassrooms(uid: string): Classroom[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_PERSONAL_KEY)
+    if (!raw) return []
+    const list = JSON.parse(raw) as Classroom[]
+    return Array.isArray(list) ? list.filter((c) => c.teacherId === uid || c.studentIds?.includes(uid)) : []
+  } catch {
+    return []
+  }
+}
+
+function saveLocalPersonalClassroom(classroom: Classroom) {
+  try {
+    const raw = localStorage.getItem(LOCAL_PERSONAL_KEY)
+    const list = raw ? (JSON.parse(raw) as Classroom[]) : []
+    const filtered = list.filter((c) => c.id !== classroom.id)
+    filtered.unshift(classroom)
+    localStorage.setItem(LOCAL_PERSONAL_KEY, JSON.stringify(filtered.slice(0, 50)))
+  } catch {}
+}
+
+export async function createPersonalClassroom(params: {
+  userId: string
+  userName: string
+  name: string
+  description?: string
+  topic?: string
+  hasWorkshop?: boolean
+  twinType?: Classroom['twinType']
+  modules?: Classroom['modules']
+}): Promise<Classroom> {
+  const roomData: Omit<Classroom, 'id'> = {
+    teacherId: params.userId,
+    teacherName: params.userName || 'Personal Study Lab',
+    name: params.name,
+    description: params.description ?? '',
+    topic: params.topic ?? 'Personal Study',
+    visibility: 'private',
+    studentIds: [params.userId],
+    isPersonal: true,
+    hasWorkshop: params.hasWorkshop ?? false,
+    twinType: params.twinType,
+    modules: params.modules ?? [],
+    createdAt: Date.now(),
+  }
+
+  try {
+    const ref = await addDoc(collection(db, 'classrooms'), {
+      ...roomData,
+      createdAt: serverTimestamp(),
+    })
+    await updateDoc(doc(db, 'users', params.userId), {
+      classroomIds: arrayUnion(ref.id),
+      classroomsTaughtIds: arrayUnion(ref.id),
+    }).catch(() => {})
+    const created: Classroom = { id: ref.id, ...roomData }
+    saveLocalPersonalClassroom(created)
+    return created
+  } catch (err) {
+    console.warn('SunRoot: Firestore write for personal class failed, persisting locally:', err)
+    const localId = `local-personal-${Date.now()}`
+    const created: Classroom = { id: localId, ...roomData }
+    saveLocalPersonalClassroom(created)
+    return created
+  }
+}
+
 export async function createClassroom(params: {
   teacherId: string
   teacherName: string
@@ -64,6 +133,8 @@ export async function createClassroom(params: {
   description?: string
   topic: string
   visibility: 'public' | 'private'
+  modules?: Classroom['modules']
+  hasWorkshop?: boolean
 }): Promise<string> {
   const ref = await addDoc(collection(db, 'classrooms'), {
     teacherId: params.teacherId,
@@ -72,6 +143,8 @@ export async function createClassroom(params: {
     description: params.description ?? '',
     topic: params.topic,
     visibility: params.visibility,
+    modules: params.modules ?? [],
+    hasWorkshop: params.hasWorkshop ?? true,
     studentIds: [],
     createdAt: serverTimestamp(),
   })
@@ -80,24 +153,38 @@ export async function createClassroom(params: {
 }
 
 /**
- * Reads directly from the `classrooms` collection rather than the
- * `classroomsTaughtIds`/`classroomIds` arrays on the user doc. Those arrays
- * are still written (invite/removal logic checks them), but using them as
- * the source of truth for this list is what caused newly created classes to
- * sometimes not show up — if that second write ever lagged behind or raced
- * with a profile refresh, the class existed but the list didn't know it yet.
- * A direct query can't drift out of sync like that.
+ * Reads directly from the `classrooms` collection and local storage.
+ * Filters out legacy test-phase classrooms so only the canonical institutional class
+ * and genuine personal/joined classes appear.
  */
 export async function listClassroomsForUser(profile: UserProfile): Promise<Classroom[]> {
   try {
     const field = profile.role === 'teacher' ? 'teacherId' : 'studentIds'
-    const snap =
-      profile.role === 'teacher'
-        ? await getDocs(query(collection(db, 'classrooms'), where(field, '==', profile.uid)))
-        : await getDocs(query(collection(db, 'classrooms'), where(field, 'array-contains', profile.uid)))
-    const rooms = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Classroom, 'id'>) }))
+    const [mainSnap, personalSnap] = await Promise.all([
+      getDocs(query(collection(db, 'classrooms'), where(field, '==', profile.uid))),
+      profile.role !== 'teacher'
+        ? getDocs(query(collection(db, 'classrooms'), where('teacherId', '==', profile.uid), where('isPersonal', '==', true))).catch(() => null)
+        : Promise.resolve(null),
+    ])
+
+    const seenIds = new Set<string>()
+    const rooms: Classroom[] = []
+
+    const addRoom = (r: Classroom) => {
+      if (!seenIds.has(r.id)) {
+        seenIds.add(r.id)
+        rooms.push(r)
+      }
+    }
+
+    mainSnap.docs.forEach((d) => addRoom({ id: d.id, ...(d.data() as Omit<Classroom, 'id'>) }))
+    personalSnap?.docs.forEach((d) => addRoom({ id: d.id, ...(d.data() as Omit<Classroom, 'id'>) }))
+
+    // Merge with local personal classrooms
+    getLocalPersonalClassrooms(profile.uid).forEach((r) => addRoom(r))
+
+    // Ensure the single canonical class exists
     if (!rooms.some((r) => r.id === DEMO_CLASSROOM_ID)) {
-      // If teacher is viewing and doesn't own any, let them manage canonical classroom
       const demoCopy = { ...DEMO_CLASSROOM }
       if (profile.role === 'teacher') {
         demoCopy.teacherId = profile.uid
@@ -105,19 +192,39 @@ export async function listClassroomsForUser(profile: UserProfile): Promise<Class
       }
       rooms.unshift(demoCopy)
     }
-    return rooms
+
+    // Filter out orphan/legacy test classrooms from other users
+    return rooms.filter((r) => {
+      if (r.id === DEMO_CLASSROOM_ID) return true
+      if (r.teacherId === profile.uid) return true
+      if (r.studentIds?.includes(profile.uid)) return true
+      return false
+    })
   } catch (err) {
     console.warn('SunRoot: listClassroomsForUser failed, using fallback', err)
+    const localPersonal = getLocalPersonalClassrooms(profile.uid)
     const demoCopy = { ...DEMO_CLASSROOM }
     if (profile.role === 'teacher') {
       demoCopy.teacherId = profile.uid
       demoCopy.teacherName = profile.displayName || 'Instructor'
     }
-    return [demoCopy]
+    return [demoCopy, ...localPersonal]
   }
 }
 
 export async function getClassroom(classroomId: string): Promise<Classroom | null> {
+  // Check local personal cache first
+  const localList = (() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_PERSONAL_KEY)
+      return raw ? (JSON.parse(raw) as Classroom[]) : []
+    } catch {
+      return []
+    }
+  })()
+  const localMatch = localList.find((c) => c.id === classroomId)
+  if (localMatch) return localMatch
+
   try {
     const snap = await getDoc(doc(db, 'classrooms', classroomId))
     if (snap.exists()) {
@@ -131,6 +238,7 @@ export async function getClassroom(classroomId: string): Promise<Classroom | nul
   }
   return null
 }
+
 
 export async function listPublicClassrooms(): Promise<Classroom[]> {
   try {

@@ -5,6 +5,7 @@ import {
   listPendingInvites,
   respondToInvite,
   createClassroom,
+  createPersonalClassroom,
   deleteClassroom,
   inviteStudentByTag,
   removeStudent,
@@ -12,19 +13,47 @@ import {
   fetchUsersByIds,
   submitClassSuggestion,
   resetDatabaseToSingleClassroom,
+  DEMO_CLASSROOM_ID,
 } from '../accounts/ClassroomService'
 import { toast } from '../game/shell'
 import { createTeam, joinTeam, listTeamsForClassroom, setMyTeamRole, teamBudgetRemaining } from '../accounts/TeamService'
 import { fetchClassroomProgress, isRecentlyActive } from '../accounts/ProgressService'
 import { generateTeachingRecommendations, generateStudentRecommendation } from '../ai/TeachingInsights'
 import { listStudySetsForClassroom, createStudySet, deleteStudySet } from '../accounts/StudySetService'
-import { generateStudySet } from '../ai/StudySetGenerator'
+import { generateStudySet, generateCourseFromOutline } from '../ai/StudySetGenerator'
 import { openStudySet } from './studySetViewer'
 import { CONCEPT_BY_ID, MASTERY_THRESHOLD } from '../learning/LearnerModel'
 import { CLASS_TOPICS, TEAM_ROLES } from '../accounts/types'
-import type { Classroom, ClassroomInvite, ProgressSnapshot, StudySet, Team, TeamRole, UserProfile } from '../accounts/types'
+import type { Classroom, ClassroomInvite, ProgressSnapshot, StudySet, Team, TeamRole, UserProfile, CourseModule } from '../accounts/types'
 
 type ClassNav = { toWorkshop: (classroomId: string) => void; toTeamWorkshop: (classroomId: string, teamId: string) => void; toStudySetViewer: () => void }
+
+const DEFAULT_CANONICAL_MODULES: CourseModule[] = [
+  {
+    id: 'mod-1',
+    title: 'Unit 1: Solar Irradiance, Photovoltaics & Energy Budgeting',
+    description: 'Model solar diurnal curves, panel angle efficiency, and 24h battery capacity to sustain uninterrupted operations.',
+    durationMinutes: 45,
+  },
+  {
+    id: 'mod-2',
+    title: 'Unit 2: Virtual Breadboard Wiring, Ground Integrity & Pin Voltages',
+    description: 'Establish shared 0V ground reference, match 3.3V and 5V logic levels, and limit GPIO pin current draw.',
+    durationMinutes: 50,
+  },
+  {
+    id: 'mod-3',
+    title: 'Unit 3: Capacitive Soil Sensing & ADC Telemetry Calibration',
+    description: 'Read analog moisture values, filter ambient sensor noise, and tune precision irrigation boundaries.',
+    durationMinutes: 40,
+  },
+  {
+    id: 'mod-4',
+    title: 'Unit 4: Closed-Loop Blockly Automation & Hysteresis Suppression',
+    description: 'Implement dual-threshold hysteresis control state machines to eliminate actuator chatter and optimize crop health.',
+    durationMinutes: 60,
+  },
+]
 
 const CLASS_ICON_COLORS = [
   { bg: 'rgba(232,185,66,0.14)', fg: '#e8b942' },
@@ -94,13 +123,20 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
   }
 
   let showCreateForm = false
+  let showPersonalModal = false
 
   function paint() {
     root.innerHTML = `
       <div class="screen">
         <div class="lab-header">
-          <div><h1>My Classes</h1><p>${profile.role === 'teacher' ? 'Classes you teach.' : 'Your learning journey across classrooms.'}</p></div>
-          ${profile.role === 'teacher' ? `<button class="primary-button" id="showCreateBtn">+ Create Class</button>` : ''}
+          <div>
+            <h1>My Classes</h1>
+            <p>${profile.role === 'teacher' ? 'Manage curriculum, monitor live student cohorts, and create classrooms.' : 'Your cyber-physical learning classrooms and personal study labs.'}</p>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <button class="primary-button" id="openPersonalCreateBtn">✨ + Create Personal Class</button>
+            ${profile.role === 'teacher' ? `<button class="ghost-button" id="showCreateBtn">+ Create Institutional Class</button>` : ''}
+          </div>
         </div>
 
         ${
@@ -123,9 +159,54 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
         }
 
         ${
+          showPersonalModal
+            ? `<div class="modal-backdrop personal-class-modal-backdrop" id="personalClassModal" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:999; align-items:center; justify-content:center; padding:16px;">
+                <div class="modal-box" style="max-width:580px; width:100%; text-align:left; padding:26px 28px; background:#0f172a; border:1px solid rgba(255,255,255,0.12); border-radius:14px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <h2 style="margin:0; font-size:20px; display:flex; align-items:center; gap:8px;">
+                      <span style="color:#38bdf8;">✨</span> Create Personal Class with Gemini
+                    </h2>
+                    <button class="ghost-button small" id="closePersonalModalBtn" type="button">✕</button>
+                  </div>
+                  <p style="color:var(--campus-text-muted); font-size:13px; line-height:1.5; margin:0 0 14px;">
+                    Upload or paste your course syllabus, lecture scheme of work, or topic outline. Google Gemini will build a custom course with Udemy-style modular units and a grounded Personal Study Lab (briefing doc, audio podcast, flashcards & quiz).
+                  </p>
+
+                  <div style="display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap;">
+                    <span style="font-size:11px; color:var(--campus-text-muted); align-self:center;">Templates:</span>
+                    <button type="button" class="ghost-button small template-pill-btn" data-template="agritech">🌱 Smart Agritech</button>
+                    <button type="button" class="ghost-button small template-pill-btn" data-template="iot">⚡ IoT Circuits</button>
+                    <button type="button" class="ghost-button small template-pill-btn" data-template="robotics">🤖 Robotics Control</button>
+                  </div>
+
+                  <textarea id="personalOutlineInput" rows="7" placeholder="Paste your course outline, lecture syllabus, or scheme of work here... e.g.:&#10;Course: Embedded Robotics & Sensors&#10;Unit 1: Microcontroller GPIO and Sensor ADC&#10;Unit 2: Motor Drivers, PWM and Hysteresis&#10;Unit 3: Solar PV Harvesting & Telemetry" style="width:100%; padding:12px; font-size:13px; line-height:1.5; font-family:inherit; margin-bottom:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.12); background:rgba(0,0,0,0.3); color:#fff; box-sizing:border-box;"></textarea>
+
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+                    <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--campus-text-muted); cursor:pointer;">
+                      <input type="checkbox" id="personalWorkshopCheckbox" checked />
+                      Include digital twin workshop simulation
+                    </label>
+                    <label class="ghost-button small" style="cursor:pointer; font-size:12px; margin:0;">
+                      📁 Upload File (.txt, .md)
+                      <input type="file" id="personalOutlineFileInput" accept=".txt,.md,.json" style="display:none;" />
+                    </label>
+                  </div>
+
+                  <div id="personalCreateStatus" style="font-size:13px; min-height:22px; margin-bottom:16px; color:var(--campus-text-muted);"></div>
+
+                  <div style="display:flex; justify-content:flex-end; gap:10px;">
+                    <button type="button" class="ghost-button small" id="cancelPersonalModalBtn">Cancel</button>
+                    <button type="button" class="primary-button" id="submitPersonalClassBtn">⚡ Generate Course with Gemini</button>
+                  </div>
+                </div>
+              </div>`
+            : ''
+        }
+
+        ${
           profile.role === 'teacher' && showCreateForm
             ? `<div class="class-panel">
-                  <h2>Create a class</h2>
+                  <h2>Create an institutional class</h2>
                   <form id="createClassForm" class="inline-form-stack">
                     <input type="text" id="className" placeholder="Class name" required />
                     <select id="classTopic" required>
@@ -180,6 +261,7 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
                         <div class="class-card-sub">${escapeHtml(topicStr)}</div>
                         <div class="class-card-by">by ${escapeHtml(teacherStr)}</div>
                         ${c.isDemo ? `<span class="tag-badge">Demo Class</span> <span class="tag-badge tag-badge-muted">Pinned</span>` : ''}
+                        ${c.isPersonal ? `<span class="tag-badge" style="background:rgba(56,189,248,0.2); color:#38bdf8;">Personal Study Lab</span>` : ''}
                       </div>
                       ${
                         profile.role !== 'teacher'
@@ -198,15 +280,132 @@ async function renderList(root: HTMLElement, profile: UserProfile, nav: ClassNav
                               </div>
                             </div>`
                       }
-                      <span class="class-card-cta">${profile.role === 'teacher' ? 'Open Class' : 'Open Workshop'} \u2192</span>
+                      <span class="class-card-cta">Open Class \u2192</span>
                     </button>`
                   })
                   .join('')
-              : `<p class="empty-note">${profile.role === 'teacher' ? 'Create your first class above.' : 'No classes yet \u2014 check Find a Class to join one.'}</p>`
+              : `<p class="empty-note">${profile.role === 'teacher' ? 'Create your first class above.' : 'No classes yet \u2014 create a personal class or check Find a Class.'}</p>`
           }
         </div>
       </div>
     `
+
+    root.querySelector('#openPersonalCreateBtn')?.addEventListener('click', () => {
+      showPersonalModal = true
+      paint()
+    })
+    root.querySelector('#closePersonalModalBtn')?.addEventListener('click', () => {
+      showPersonalModal = false
+      paint()
+    })
+    root.querySelector('#cancelPersonalModalBtn')?.addEventListener('click', () => {
+      showPersonalModal = false
+      paint()
+    })
+
+    // Template pills
+    root.querySelectorAll<HTMLButtonElement>('.template-pill-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.template
+        const input = root.querySelector<HTMLTextAreaElement>('#personalOutlineInput')
+        if (!input) return
+        if (t === 'agritech') {
+          input.value = `Course: Smart Agritech & Closed-Loop Irrigation
+Unit 1: Solar Irradiance, Photovoltaics & Energy Reserve Budgeting
+Unit 2: Capacitive Soil Moisture Telemetry & ADC Precision Calibration
+Unit 3: Dual-Threshold Hysteresis State Machines to Prevent Pump Chatter
+Unit 4: Closed-Loop Crop Transpiration & Autonomous Yield Maximization`
+        } else if (t === 'iot') {
+          input.value = `Course: Virtual Breadboard & Embedded IoT Systems
+Unit 1: Microcontroller GPIO, Common Grounding & 3.3V/5V Logic Levels
+Unit 2: Analog Sensor Signal Conditioning & Filter Noise Reduction
+Unit 3: Transistor & MOSFET Drive Stages for Inductive Actuators
+Unit 4: Low-Power Sleep Cycles & Telemetry Transmission Protocol`
+        } else if (t === 'robotics') {
+          input.value = `Course: Mechatronics & Actuator Control Systems
+Unit 1: Motor Driver H-Bridges, PWM Speed Modulation & Back-EMF
+Unit 2: Encoder Feedback & Closed-Loop Proportional Position Control
+Unit 3: Power Distribution, Voltage Regulation & Peak Current Protection
+Unit 4: Safety Interlocks, Failsafe States & Hardware Telemetry Logs`
+        }
+      })
+    })
+
+    // File upload
+    root.querySelector<HTMLInputElement>('#personalOutlineFileInput')?.addEventListener('change', (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        const input = root.querySelector<HTMLTextAreaElement>('#personalOutlineInput')
+        if (input && typeof reader.result === 'string') {
+          input.value = reader.result
+        }
+      }
+      reader.readAsText(file)
+    })
+
+    // Submit Personal Class
+    root.querySelector<HTMLButtonElement>('#submitPersonalClassBtn')?.addEventListener('click', async () => {
+      const outlineInput = root.querySelector<HTMLTextAreaElement>('#personalOutlineInput')!
+      const statusEl = root.querySelector<HTMLElement>('#personalCreateStatus')!
+      const submitBtn = root.querySelector<HTMLButtonElement>('#submitPersonalClassBtn')!
+      const workshopCheckbox = root.querySelector<HTMLInputElement>('#personalWorkshopCheckbox')!
+
+      const text = outlineInput.value.trim()
+      if (!text) {
+        statusEl.textContent = 'Please enter or paste a course outline or scheme of work.'
+        statusEl.style.color = '#ef4444'
+        return
+      }
+
+      submitBtn.disabled = true
+      submitBtn.textContent = 'Generating with Gemini\u2026'
+      statusEl.style.color = '#38bdf8'
+      statusEl.textContent = '⚡ Synthesizing course syllabus, modular units, and Study Lab with Gemini...'
+
+      try {
+        const coursePkg = await generateCourseFromOutline(text)
+        statusEl.textContent = '💾 Saving personal class and grounded study material...'
+
+        const newClass = await createPersonalClassroom({
+          userId: profile.uid,
+          userName: profile.displayName || 'Learner',
+          name: coursePkg.title,
+          description: coursePkg.description,
+          topic: coursePkg.topic,
+          hasWorkshop: workshopCheckbox.checked ? coursePkg.hasWorkshop : false,
+          twinType: coursePkg.twinType,
+          modules: coursePkg.modules,
+        })
+
+        // Also create study set linked to this class
+        await createStudySet({
+          classroomId: newClass.id,
+          teacherId: profile.uid,
+          teacherName: profile.displayName || 'Learner',
+          title: `${coursePkg.title}: Study Lab`,
+          sourceText: text,
+          notes: coursePkg.studySet.notes,
+          briefingDoc: coursePkg.studySet.briefingDoc,
+          faq: coursePkg.studySet.faq,
+          audioOverview: coursePkg.studySet.audioOverview,
+          flashcards: coursePkg.studySet.flashcards,
+          quiz: coursePkg.studySet.quiz,
+        }).catch((e) => console.warn('Study set creation warning:', e))
+
+        toast(`✨ Personal Class "${newClass.name}" created!`, 'success')
+        showPersonalModal = false
+        await refreshProfile()
+        renderDetail(root, profile, newClass.id, nav)
+      } catch (err: any) {
+        console.error('Failed to create personal class:', err)
+        statusEl.style.color = '#ef4444'
+        statusEl.textContent = `Error: ${err?.message || 'Could not generate class'}`
+        submitBtn.disabled = false
+        submitBtn.textContent = '⚡ Generate Course with Gemini'
+      }
+    })
 
     root.querySelector('#showCreateBtn')?.addEventListener('click', () => {
       showCreateForm = true
@@ -460,22 +659,82 @@ function paintDetail(
   studySets: StudySet[],
 ) {
   const analytics = isOwner ? computeClassAnalytics(roster, progressByUid) : null
+
+  const hasWorkshop =
+    classroom.hasWorkshop !== false &&
+    (classroom.id === DEMO_CLASSROOM_ID ||
+      classroom.isDemo === true ||
+      !!classroom.twinType ||
+      classroom.topic.toLowerCase().includes('solar') ||
+      classroom.topic.toLowerCase().includes('circuit') ||
+      classroom.topic.toLowerCase().includes('robot') ||
+      classroom.topic.toLowerCase().includes('water'))
+
+  const modules: CourseModule[] =
+    classroom.modules && classroom.modules.length > 0 ? classroom.modules : DEFAULT_CANONICAL_MODULES
+
   root.innerHTML = `
     <div class="screen">
       <button class="ghost-button small" id="backBtn">\u2190 Back to My Classes</button>
       <div class="lab-header">
         <div>
-          <h1>${escapeHtml(classroom.name)} ${classroom.isDemo ? '<span class="tag-badge">Demo</span>' : ''}</h1>
+          <h1>${escapeHtml(classroom.name)} ${classroom.isDemo ? '<span class="tag-badge">Demo</span>' : ''} ${classroom.isPersonal ? '<span class="tag-badge" style="background:rgba(56,189,248,0.2); color:#38bdf8;">Personal Study Lab</span>' : ''}</h1>
           <p>by ${escapeHtml(classroom.teacherName)} \u00b7 ${escapeHtml(classroom.topic)}</p>
           ${classroom.description ? `<p>${escapeHtml(classroom.description)}</p>` : ''}
         </div>
       </div>
 
-      <button class="primary-button" id="openWorkshopBtn">Open Workshop \u2192</button>
+      ${
+        hasWorkshop
+          ? `<div class="workshop-callout-card" style="background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(56,189,248,0.06)); border: 1px solid rgba(16,185,129,0.3); border-radius: 14px; padding: 20px 24px; margin: 16px 0 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+              <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="font-size: 34px;">🔬</div>
+                <div>
+                  <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.08em; color: #10b981;">Practical Simulation Workshop Available</div>
+                  <div style="font-size: 17px; font-weight: 800; color: #fff;">Interactive Digital Twin Simulation Lab</div>
+                  <div style="font-size: 12px; color: var(--campus-text-muted);">Virtual breadboard, GPIO pin voltages, Blockly logic, and telemetry farm.</div>
+                </div>
+              </div>
+              <button class="primary-button" id="openWorkshopBtn" style="font-weight: 700; padding: 12px 22px;">
+                Enter Practical Workshop 🔬 \u2192
+              </button>
+            </div>`
+          : ''
+      }
+
+      <!-- Udemy-Style Curriculum Section -->
+      <div class="class-panel curriculum-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2 style="margin: 0;">📚 Course Curriculum &amp; Modules</h2>
+          <span class="tag-badge" style="background: rgba(255,255,255,0.08);">${modules.length} Lessons</span>
+        </div>
+        <p class="empty-note" style="margin-bottom: 16px;">Syllabus outline. Complete lessons, test retention in the Personal Study Lab, or launch interactive labs.</p>
+        <div class="curriculum-accordion-list">
+          ${modules
+            .map(
+              (m, idx) => `
+            <div class="module-card-row" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div style="flex: 1; min-width: 220px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase;">Unit ${idx + 1}</span>
+                  <span style="font-size: 12px; color: var(--campus-text-muted);">&bull; ${m.durationMinutes || 45} mins</span>
+                </div>
+                <div style="font-weight: 700; font-size: 15px; margin: 2px 0 4px; color: #fff;">${escapeHtml(m.title)}</div>
+                <div style="font-size: 12px; color: var(--campus-text-muted);">${escapeHtml(m.description)}</div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="ghost-button small module-study-btn" data-modidx="${idx}">📖 Study Lab</button>
+                ${hasWorkshop ? `<button class="primary-button small module-lab-btn" data-modidx="${idx}">Launch Lab ⚡</button>` : ''}
+              </div>
+            </div>`,
+            )
+            .join('')}
+        </div>
+      </div>
 
       <div class="class-panel study-set-panel">
-        <h2>Study sets</h2>
-        <p class="empty-note">AI-generated notes, flashcards, and a quiz \u2014 built from course notes the teacher provides.</p>
+        <h2>Personal Study Lab (AI Study Sets)</h2>
+        <p class="empty-note">AI-generated notes, briefing doc, 2-speaker audio podcast, flashcards, and quiz.</p>
         ${
           isOwner
             ? `<button class="ghost-button" id="showStudySetFormBtn">+ New study set</button>
@@ -916,11 +1175,26 @@ function paintDetail(
     const res = await generateTeachingRecommendations(summary)
     btn.disabled = false
     btn.textContent = 'Regenerate recommendations'
-    resultEl.innerHTML = res.text
-      ? `<div class="ai-insight-box">${escapeHtml(res.text).replace(/\n/g, '<br>')}</div>`
-      : `<p class="empty-note">Couldn\u2019t generate recommendations: ${escapeHtml(res.error ?? 'unknown error')}</p>`
+      resultEl.innerHTML = res.text
+        ? `<div class="ai-insight-box">${escapeHtml(res.text).replace(/\n/g, '<br>')}</div>`
+        : `<p class="empty-note">Couldn\u2019t generate recommendations: ${escapeHtml(res.error ?? 'unknown error')}</p>`
+    })
+    root.querySelector('#openWorkshopBtn')?.addEventListener('click', () => nav.toWorkshop(classroom.id))
+
+  root.querySelectorAll<HTMLButtonElement>('.module-study-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (studySets.length > 0) {
+        openStudySet(studySets[0].id)
+      }
+      nav.toStudySetViewer()
+    })
   })
-  root.querySelector('#openWorkshopBtn')?.addEventListener('click', () => nav.toWorkshop(classroom.id))
+
+  root.querySelectorAll<HTMLButtonElement>('.module-lab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      nav.toWorkshop(classroom.id)
+    })
+  })
 
   root.querySelector('#showStudySetFormBtn')?.addEventListener('click', () => {
     root.querySelector<HTMLElement>('#studySetForm')!.hidden = false

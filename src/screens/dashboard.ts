@@ -9,6 +9,7 @@ import { openStudySet } from './studySetViewer'
 import { progress, rankFor } from '../game/progress'
 import type { Classroom, UserProfile, ProgressSnapshot, HomeworkAssignment, StudySet } from '../accounts/types'
 import { toast } from '../game/shell'
+import { getStreakState, clockInToday } from '../accounts/StreakService'
 
 export interface DashboardNav {
   toClasses: () => void
@@ -292,6 +293,8 @@ function paintDashboard(
     }
   })
 
+  const streakState = getStreakState(profile)
+
   root.innerHTML = `
     <div class="screen dash-screen dash-screen-v2">
       <!-- 2026 Educational Banner -->
@@ -308,9 +311,9 @@ function paintDashboard(
                 <span class="tag-copy-icon">📋</span>
               </button>
             ` : ''}
-            <span class="dash-streak-chip">
-              <span class="fire-icon">🔥</span> 3-Day Streak
-            </span>
+            <button class="dash-streak-chip ${streakState.hasClockedInToday ? 'is-active' : 'needs-clockin'}" id="dashStreakBtn" title="${streakState.statusText}">
+              <span class="fire-icon">🔥</span> ${streakState.displayStreak}-Day Streak ${streakState.hasClockedInToday ? '✓' : '• Clock In ⚡'}
+            </button>
           </div>
 
           <h1 class="dash-title">
@@ -325,6 +328,7 @@ function paintDashboard(
 
         <div class="dash-header-actions">
           ${profile.isAdmin ? `<button class="ghost-button small" id="toAdminBtn">🛡️ Admin Console</button>` : ''}
+          <button class="ghost-button" id="createPersonalClassTopBtn">✨ + Personal Class</button>
           ${isTeacher ? `
             <button class="ghost-button" id="openAnalyticsTopBtn">📊 Class Analytics</button>
             <button class="primary-button" id="createClassTopBtn">+ Create Class</button>
@@ -800,7 +804,19 @@ function paintDashboard(
   root.querySelector('#findClassTopBtn')?.addEventListener('click', nav.toFindClass)
   root.querySelector('#toAdminBtn')?.addEventListener('click', nav.toAdmin)
   root.querySelector('#createClassTopBtn')?.addEventListener('click', nav.toClasses)
+  root.querySelector('#createPersonalClassTopBtn')?.addEventListener('click', nav.toClasses)
   root.querySelector('#openAnalyticsTopBtn')?.addEventListener('click', () => nav.toTeacherAnalytics?.() ?? nav.toClasses())
+
+  // Streak clock-in action
+  root.querySelector('#dashStreakBtn')?.addEventListener('click', async () => {
+    if (streakState.canClockIn) {
+      const res = await clockInToday()
+      toast(res.message, 'success')
+      renderDashboard(root, nav)
+    } else {
+      toast(`🔥 ${streakState.statusText} (Record: ${streakState.longestStreak} days)`, 'info')
+    }
+  })
 
   // Academic Homework & NotebookLM Studio buttons
   const launchActiveStudySet = () => {
