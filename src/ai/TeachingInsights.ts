@@ -1,4 +1,4 @@
-import { loadConfig } from './AIProvider'
+import { AIHttpError, callAICompletionWithMeta } from './AIProvider'
 
 export interface InsightResult {
   text: string
@@ -17,37 +17,19 @@ const SYSTEM_PROMPT =
  * here should be visibly an error, not a plausible-looking guess.
  */
 export async function generateTeachingRecommendations(summary: string): Promise<InsightResult> {
-  const cfg = loadConfig()
-  const url = cfg.proxyUrl || cfg.endpoint
-  if (!url) return { text: '', error: 'No AI route configured.' }
-
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (!cfg.proxyUrl && cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: summary },
-        ],
-        temperature: 0.4,
-        max_tokens: 400,
-      }),
-    })
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      return { text: '', error: `HTTP ${res.status}: ${body.slice(0, 160)}` }
-    }
-
-    const data = await res.json()
-    const text: string | undefined = data?.choices?.[0]?.message?.content
-    return text?.trim() ? { text: text.trim() } : { text: '', error: 'Empty response from the model.' }
+    const { text } = await callAICompletionWithMeta(
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: summary },
+      ],
+      { task: 'lab-coach', maxTokens: 400, temperature: 0.4 },
+    )
+    return text ? { text } : { text: '', error: 'Empty response from the model.' }
   } catch (err: any) {
+    if (err instanceof AIHttpError) {
+      return { text: '', error: `HTTP ${err.status}: ${err.body.slice(0, 160)}` }
+    }
     return { text: '', error: err?.message ?? 'Request failed.' }
   }
 }
@@ -63,37 +45,19 @@ const STUDENT_SYSTEM_PROMPT =
 
 /** Same idea as generateTeachingRecommendations, but focused on one student rather than the whole class. */
 export async function generateStudentRecommendation(summary: string): Promise<InsightResult> {
-  const cfg = loadConfig()
-  const url = cfg.proxyUrl || cfg.endpoint
-  if (!url) return { text: '', error: 'No AI route configured.' }
-
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (!cfg.proxyUrl && cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [
-          { role: 'system', content: STUDENT_SYSTEM_PROMPT },
-          { role: 'user', content: summary },
-        ],
-        temperature: 0.4,
-        max_tokens: 320,
-      }),
-    })
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      return { text: '', error: `HTTP ${res.status}: ${body.slice(0, 160)}` }
-    }
-
-    const data = await res.json()
-    const text: string | undefined = data?.choices?.[0]?.message?.content
-    return text?.trim() ? { text: text.trim() } : { text: '', error: 'Empty response from the model.' }
+    const { text } = await callAICompletionWithMeta(
+      [
+        { role: 'system', content: STUDENT_SYSTEM_PROMPT },
+        { role: 'user', content: summary },
+      ],
+      { task: 'lab-coach', maxTokens: 320, temperature: 0.4 },
+    )
+    return text ? { text } : { text: '', error: 'Empty response from the model.' }
   } catch (err: any) {
+    if (err instanceof AIHttpError) {
+      return { text: '', error: `HTTP ${err.status}: ${err.body.slice(0, 160)}` }
+    }
     return { text: '', error: err?.message ?? 'Request failed.' }
   }
 }

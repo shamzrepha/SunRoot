@@ -123,5 +123,111 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
       allow delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
     }
+
+    match /homework/{homeworkId} {
+      // Matches classrooms/studySets read bar so enrolled students and teachers
+      // can query by classroomId without per-doc classroom membership lookups.
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.teacherId == request.auth.uid
+        && request.resource.data.classroomId is string
+        && request.resource.data.title is string;
+      // Teachers can update their own assignments; students can submit/update
+      // only their own entry inside the `variants` map (`variants.<uid>`).
+      allow update: if isSignedIn() && (
+        resource.data.teacherId == request.auth.uid ||
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['variants']) &&
+          request.resource.data.variants.diff(resource.data.get('variants', {})).affectedKeys().hasOnly([request.auth.uid])
+        )
+      );
+      allow delete: if isSignedIn() && (resource.data.teacherId == request.auth.uid || isAdminUser());
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      // Teachers create notifications for students (`recipientUid != auth.uid`).
+      allow create: if isSignedIn()
+        && request.resource.data.recipientUid is string
+        && request.resource.data.type in ['homework', 'announcement', 'studyset', 'grade']
+        && request.resource.data.title is string
+        && request.resource.data.body is string
+        && request.resource.data.read == false;
+      allow update: if isSignedIn()
+        && resource.data.recipientUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read is bool;
+      allow delete: if isSignedIn() && (resource.data.recipientUid == request.auth.uid || isAdminUser());
+    }
+
+    match /aiUsageLogs/{logId} {
+      // Aggregate non-PII AI cost/cache telemetry readable by signed-in users
+      // for the Cost & KPI Dashboard (matches progressSnapshots pattern).
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.task in ['chat', 'hint', 'stuck-help', 'quiz', 'study-set', 'course-outline', 'assessment', 'lab-coach']
+        && request.resource.data.tier in ['nano', 'flash', 'pro']
+        && request.resource.data.model is string
+        && request.resource.data.promptTokens is number && request.resource.data.promptTokens >= 0
+        && request.resource.data.completionTokens is number && request.resource.data.completionTokens >= 0
+        && request.resource.data.totalTokens is number && request.resource.data.totalTokens >= 0
+        && request.resource.data.estimatedUsd is number && request.resource.data.estimatedUsd >= 0
+        && request.resource.data.cached is bool
+        && request.resource.data.latencyMs is number && request.resource.data.latencyMs >= 0
+        && request.resource.data.timestamp is string;
+      allow update: if false;
+      allow delete: if isAdminUser();
+    }
+
+    match /learningEvents/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.eventType in ['quiz_verified', 'lab_check_passed', 'circuit_verified']
+        && request.resource.data.passed is bool
+        && request.resource.data.timestamp is string
+        && request.resource.data.weekKey is string
+        && (!('score' in request.resource.data) || (request.resource.data.score is number && request.resource.data.score >= 0 && request.resource.data.score <= 100));
+      allow update: if false;
+      allow delete: if isAdminUser();
+    }
+
+    match /sessionLogs/{sessionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.dateKey is string
+        && request.resource.data.weekKey is string
+        && request.resource.data.startedAt is string
+        && request.resource.data.durationMs is number && request.resource.data.durationMs >= 0;
+      allow update: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.durationMs is number && request.resource.data.durationMs >= 0;
+      allow delete: if isAdminUser();
+    }
+
+    match /labCompletions/{completionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.labId in ['light-circuit', 'night-light', 'distance-sensor', 'follow-path-robot', 'traffic-light']
+        && request.resource.data.score is number && request.resource.data.score >= 0 && request.resource.data.score <= 100
+        && request.resource.data.checksPassed is number && request.resource.data.checksPassed >= 0
+        && request.resource.data.checksTotal is number && request.resource.data.checksTotal > 0
+        && request.resource.data.durationSec is number && request.resource.data.durationSec >= 0
+        && request.resource.data.completedAt is string;
+      allow update: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.labId == resource.data.labId
+        && request.resource.data.score is number && request.resource.data.score >= 0 && request.resource.data.score <= 100
+        && request.resource.data.checksPassed is number && request.resource.data.checksPassed >= 0
+        && request.resource.data.checksTotal is number && request.resource.data.checksTotal > 0
+        && request.resource.data.durationSec is number && request.resource.data.durationSec >= 0
+        && request.resource.data.completedAt is string;
+      allow delete: if isAdminUser();
+    }
   }
 }

@@ -19,7 +19,7 @@
 // the same evidence. The screen is identical; only the prose is poorer.
 // ---------------------------------------------------------------------------
 
-import { ask, isLiveAI } from '../ai/AIProvider'
+import { callAICompletionWithMeta, isLiveAI } from '../ai/AIProvider'
 import { CONCEPTS, learner, masteryOf, overallMastery } from './LearnerModel'
 import { score, ratingFor } from '../simulation/Scoreboard'
 import { graph, partOf, wiredOutputs, wiredSensors } from '../hardware/CircuitGraph'
@@ -212,13 +212,15 @@ export async function assess(): Promise<Assessment> {
   }
 
   try {
-    const res = await ask(
-      `${SYSTEM}\n\n---\n\n${dossier()}`,
-      [],
+    const { text } = await callAICompletionWithMeta(
+      [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: dossier() },
+      ],
+      { task: 'assessment', maxTokens: 800, temperature: 0.2 },
     )
-    if (res.source !== 'model') return { ...localAssess(), evidence, source: 'local', ...metrics }
 
-    const parsed = parseAssessment(res.text)
+    const parsed = parseAssessment(text)
     if (!parsed) return { ...localAssess(), evidence, source: 'local', ...metrics }
 
     // The model may revise a dimension, within bounds, and must justify it.

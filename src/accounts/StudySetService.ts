@@ -1,5 +1,5 @@
 import { collection, doc, addDoc, deleteDoc, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore'
-import { db } from './firebase'
+import { db, isFirebaseConfigured } from './firebase'
 import type { StudySet } from './types'
 
 const LOCAL_SETS_KEY = 'sunroot:study_sets:local'
@@ -172,6 +172,8 @@ export async function createStudySet(params: {
   locals.unshift(localSet)
   saveLocalSets(locals)
 
+  if (!isFirebaseConfigured()) return localSet.id
+
   try {
     const ref = await addDoc(collection(db, 'studySets'), {
       ...params,
@@ -185,6 +187,7 @@ export async function createStudySet(params: {
 
 export async function listStudySetsForClassroom(classroomId: string): Promise<StudySet[]> {
   const locals = getLocalSets().filter((s) => s.classroomId === classroomId)
+  if (!isFirebaseConfigured()) return locals
   try {
     const snap = await getDocs(query(collection(db, 'studySets'), where('classroomId', '==', classroomId)))
     const remote = snap.docs
@@ -209,6 +212,8 @@ export async function getStudySet(id: string): Promise<StudySet | null> {
   const locals = getLocalSets()
   const localFound = locals.find((s) => s.id === id)
 
+  if (!isFirebaseConfigured()) return localFound || null
+
   try {
     const snap = await getDoc(doc(db, 'studySets', id))
     if (!snap.exists()) return localFound || null
@@ -226,6 +231,7 @@ export async function getStudySet(id: string): Promise<StudySet | null> {
 export async function deleteStudySet(id: string): Promise<void> {
   const locals = getLocalSets().filter((s) => s.id !== id)
   saveLocalSets(locals)
+  if (!isFirebaseConfigured()) return
   try {
     await deleteDoc(doc(db, 'studySets', id))
   } catch {}

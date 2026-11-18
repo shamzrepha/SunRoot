@@ -1,4 +1,4 @@
-import { loadConfig, callAICompletion } from './AIProvider'
+import { AIHttpError, callAICompletionWithMeta } from './AIProvider'
 import type { StudyFlashcard, StudyQuizQuestion, AudioOverviewDialog, HomeworkAssignment, CourseModule, DigitalTwinType } from '../accounts/types'
 
 export interface StudySetGenerationResult {
@@ -86,47 +86,26 @@ function tryParseNotebook(raw: string): Omit<StudySetGenerationResult, 'error'> 
 }
 
 export async function generateStudySet(sourceText: string): Promise<StudySetGenerationResult> {
-  const cfg = loadConfig()
-  const url = cfg.proxyUrl || cfg.endpoint
-  if (!url) return fallbackStudySet(sourceText, 'No AI route configured.')
-
   const trimmedSource = sourceText.trim().slice(0, 15000)
   if (!trimmedSource) return fallbackStudySet(sourceText, 'No notes provided.')
 
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (cfg.apiKey) {
-      headers['x-gemini-key'] = cfg.apiKey
-      if (!cfg.proxyUrl) headers.Authorization = `Bearer ${cfg.apiKey}`
-    }
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [
-          { role: 'system', content: STUDY_SET_SYSTEM_PROMPT },
-          { role: 'user', content: trimmedSource },
-        ],
-        temperature: 0.3,
-        max_tokens: 3800,
-      }),
-    })
-
-    if (!res.ok) {
-      return fallbackStudySet(trimmedSource, `HTTP ${res.status}`)
-    }
-
-    const data = await res.json()
-    const raw: string | undefined = data?.choices?.[0]?.message?.content
-    if (!raw) return fallbackStudySet(trimmedSource, 'Empty response from model.')
+    const { text: raw } = await callAICompletionWithMeta(
+      [
+        { role: 'system', content: STUDY_SET_SYSTEM_PROMPT },
+        { role: 'user', content: trimmedSource },
+      ],
+      { task: 'study-set', maxTokens: 3800, temperature: 0.3 },
+    )
 
     const parsed = tryParseNotebook(raw)
     if (!parsed) return fallbackStudySet(trimmedSource, 'Invalid model JSON.')
 
     return parsed
   } catch (err: any) {
+    if (err instanceof AIHttpError) {
+      return fallbackStudySet(trimmedSource, `HTTP ${err.status}`)
+    }
     return fallbackStudySet(trimmedSource, err?.message ?? 'Request failed.')
   }
 }
@@ -138,13 +117,12 @@ export async function generateCourseFromOutline(outlineText: string): Promise<Co
   }
 
   try {
-    const raw = await callAICompletion(
+    const { text: raw } = await callAICompletionWithMeta(
       [
         { role: 'system', content: COURSE_OUTLINE_SYSTEM_PROMPT },
         { role: 'user', content: trimmed },
       ],
-      4000,
-      0.3,
+      { task: 'course-outline', maxTokens: 4000, temperature: 0.3 },
     )
 
     const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
@@ -253,34 +231,12 @@ function fallbackCoursePackage(sourceText: string, reason = ''): CourseGeneratio
 
 /** Personal Study Lab Grounded Chat: Answers queries grounded strictly in provided notes */
 export async function askSourceNotes(sourceText: string, query: string): Promise<{ answer: string; citations: string[] }> {
-  const cfg = loadConfig()
-  const url = cfg.proxyUrl || cfg.endpoint
-  if (!url) {
-    return {
-      answer: `Based on your course notes: ${sourceText.slice(0, 180)}...`,
-      citations: ['Source notes section 1'],
-    }
-  }
-
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (!cfg.proxyUrl && cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
-
     const prompt = `You are a Personal Study Lab grounded tutor. Answer the user's question using ONLY the provided course notes.\n\nCOURSE NOTES:\n${sourceText.slice(0, 10000)}\n\nUSER QUESTION: ${query}\n\nProvide a clear, pedagogical answer followed by direct quotes/citations from the notes.`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 800,
-      }),
-    })
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-    const content = data?.choices?.[0]?.message?.content ?? 'Unable to process query.'
+    const { text: content } = await callAICompletionWithMeta(
+      [{ role: 'user', content: prompt }],
+      { task: 'chat', maxTokens: 800, temperature: 0.2 },
+    )
     return {
       answer: content,
       citations: ['Uploaded Course Material'],
@@ -295,9 +251,6 @@ export async function askSourceNotes(sourceText: string, query: string): Promise
 
 /** Generates base problem template for isomorphic anti-cheat homework */
 export async function generateBaseProblemFromTopic(topic: string, notes?: string): Promise<HomeworkAssignment['baseProblem']> {
-  const cfg = loadConfig()
-  const url = cfg.proxyUrl || cfg.endpoint
-
   const defaultProblem: HomeworkAssignment['baseProblem'] = {
     promptTemplate: 'A DC irrigation pump rated at {WATTS} W operates for {HOURS} hours daily. If peak sunlight provides {IRRADIANCE} hours of equivalent full sun, calculate the required solar PV generation capacity in Watts.',
     variables: {
@@ -313,12 +266,7 @@ export async function generateBaseProblemFromTopic(topic: string, notes?: string
     ],
   }
 
-  if (!url) return defaultProblem
-
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (!cfg.proxyUrl && cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`
-
     const prompt =
       `Create an isomorphic homework engineering problem template for the topic "${topic}".\n` +
       `Notes excerpt: ${(notes || '').slice(0, 1000)}\n` +
@@ -330,21 +278,10 @@ export async function generateBaseProblemFromTopic(topic: string, notes?: string
       `  "rubric": ["step 1...", "step 2..."]\n` +
       `}`
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: 1200,
-      }),
-    })
-
-    if (!res.ok) return defaultProblem
-    const data = await res.json()
-    const raw = data?.choices?.[0]?.message?.content
-    if (!raw) return defaultProblem
+    const { text: raw } = await callAICompletionWithMeta(
+      [{ role: 'user', content: prompt }],
+      { task: 'quiz', maxTokens: 1200, temperature: 0.3 },
+    )
     const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
     const parsed = JSON.parse(cleaned)
     if (parsed.promptTemplate && parsed.variables && parsed.solutionFormula) return parsed

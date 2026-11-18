@@ -1,5 +1,5 @@
 import { collection, doc, addDoc, updateDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore'
-import { db } from './firebase'
+import { db, isFirebaseConfigured } from './firebase'
 import type { ClassNotification } from './types'
 
 const LOCAL_STORAGE_NOTIFS_KEY = 'sunroot:notifications:local'
@@ -39,6 +39,8 @@ export async function createNotification(params: {
   locals.unshift(localNotif)
   saveLocalNotifs(locals)
 
+  if (!isFirebaseConfigured()) return localNotif.id
+
   try {
     const ref = await addDoc(collection(db, 'notifications'), {
       ...params,
@@ -53,6 +55,7 @@ export async function createNotification(params: {
 
 export async function listNotificationsForUser(uid: string): Promise<ClassNotification[]> {
   const locals = getLocalNotifs().filter((n) => n.recipientUid === uid)
+  if (!isFirebaseConfigured()) return locals
   try {
     const snap = await getDocs(query(collection(db, 'notifications'), where('recipientUid', '==', uid)))
     const remote = snap.docs.map((d) => {
@@ -80,6 +83,7 @@ export async function markNotificationAsRead(id: string): Promise<void> {
     found.read = true
     saveLocalNotifs(locals)
   }
+  if (!isFirebaseConfigured()) return
   try {
     await updateDoc(doc(db, 'notifications', id), { read: true })
   } catch {}

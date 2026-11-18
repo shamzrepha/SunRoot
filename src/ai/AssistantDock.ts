@@ -140,7 +140,7 @@ export function mountAssistantDock() {
     const el = dock!.querySelector<HTMLElement>('#diagText')!
     resetAIAvailability()
     el.textContent = 'Testing…'
-    const res = await ask('Reply with exactly: connection ok')
+    const res = await ask('Reply with exactly: connection ok', [], { bypassCache: true })
     el.textContent =
       res.source === 'model'
         ? `Connected. Model replied: "${res.text.slice(0, 60)}"`

@@ -1,6 +1,6 @@
 import { tray } from '../hardware/PartsTray'
 import { graph } from '../hardware/CircuitGraph'
-import { getSavedWorkspace } from './codingLab'
+import { getSavedWorkspace } from '../coding/workspaceState'
 import { progress } from '../game/progress'
 import { CATALOG } from '../hardware/ComponentCatalog'
 

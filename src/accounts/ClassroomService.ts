@@ -15,7 +15,7 @@ import {
   serverTimestamp,
   writeBatch,
 } from 'firebase/firestore'
-import { db } from './firebase'
+import { db, isFirebaseConfigured } from './firebase'
 import type { Classroom, ClassroomInvite, ClassSuggestion, UserProfile } from './types'
 
 export const DEMO_CLASSROOM_ID = 'sunroot-original'
@@ -36,6 +36,7 @@ export const DEMO_CLASSROOM: Classroom = {
 
 /** Call once at boot. Cheap no-op after the first run. Handles permissions gracefully. */
 export async function ensureDemoClassroomExists(): Promise<void> {
+  if (!isFirebaseConfigured()) return
   try {
     const ref = doc(db, 'classrooms', DEMO_CLASSROOM_ID)
     const snap = await getDoc(ref)
@@ -105,6 +106,13 @@ export async function createPersonalClassroom(params: {
     createdAt: Date.now(),
   }
 
+  if (!isFirebaseConfigured()) {
+    const localId = `local-personal-${Date.now()}`
+    const created: Classroom = { id: localId, ...roomData }
+    saveLocalPersonalClassroom(created)
+    return created
+  }
+
   try {
     const ref = await addDoc(collection(db, 'classrooms'), {
       ...roomData,
@@ -136,6 +144,24 @@ export async function createClassroom(params: {
   modules?: Classroom['modules']
   hasWorkshop?: boolean
 }): Promise<string> {
+  if (!isFirebaseConfigured()) {
+    const localId = `local-class-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const created: Classroom = {
+      id: localId,
+      teacherId: params.teacherId,
+      teacherName: params.teacherName,
+      name: params.name,
+      description: params.description ?? '',
+      topic: params.topic,
+      visibility: params.visibility,
+      modules: params.modules ?? [],
+      hasWorkshop: params.hasWorkshop ?? true,
+      studentIds: [],
+      createdAt: Date.now(),
+    }
+    saveLocalPersonalClassroom(created)
+    return localId
+  }
   const ref = await addDoc(collection(db, 'classrooms'), {
     teacherId: params.teacherId,
     teacherName: params.teacherName,
@@ -158,6 +184,15 @@ export async function createClassroom(params: {
  * and genuine personal/joined classes appear.
  */
 export async function listClassroomsForUser(profile: UserProfile): Promise<Classroom[]> {
+  if (!isFirebaseConfigured()) {
+    const localPersonal = getLocalPersonalClassrooms(profile.uid)
+    const demoCopy = { ...DEMO_CLASSROOM }
+    if (profile.role === 'teacher') {
+      demoCopy.teacherId = profile.uid
+      demoCopy.teacherName = profile.displayName || 'Instructor'
+    }
+    return [demoCopy, ...localPersonal]
+  }
   try {
     const field = profile.role === 'teacher' ? 'teacherId' : 'studentIds'
     const [mainSnap, personalSnap] = await Promise.all([
@@ -225,6 +260,10 @@ export async function getClassroom(classroomId: string): Promise<Classroom | nul
   const localMatch = localList.find((c) => c.id === classroomId)
   if (localMatch) return localMatch
 
+  if (!isFirebaseConfigured()) {
+    return classroomId === DEMO_CLASSROOM_ID ? DEMO_CLASSROOM : null
+  }
+
   try {
     const snap = await getDoc(doc(db, 'classrooms', classroomId))
     if (snap.exists()) {
@@ -241,6 +280,7 @@ export async function getClassroom(classroomId: string): Promise<Classroom | nul
 
 
 export async function listPublicClassrooms(): Promise<Classroom[]> {
+  if (!isFirebaseConfigured()) return [DEMO_CLASSROOM]
   try {
     const snap = await getDocs(query(collection(db, 'classrooms'), where('visibility', '==', 'public')))
     const rooms = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Classroom, 'id'>) }))
@@ -255,6 +295,7 @@ export async function listPublicClassrooms(): Promise<Classroom[]> {
 }
 
 export async function joinPublicClassroom(classroomId: string, uid: string): Promise<void> {
+  if (!isFirebaseConfigured()) return
   const batch = writeBatch(db)
   batch.update(doc(db, 'classrooms', classroomId), { studentIds: arrayUnion(uid) })
   batch.update(doc(db, 'users', uid), { classroomIds: arrayUnion(classroomId) })
@@ -262,6 +303,7 @@ export async function joinPublicClassroom(classroomId: string, uid: string): Pro
 }
 
 export async function leaveClassroom(classroomId: string, uid: string): Promise<void> {
+  if (!isFirebaseConfigured()) return
   const batch = writeBatch(db)
   batch.update(doc(db, 'classrooms', classroomId), { studentIds: arrayRemove(uid) })
   batch.update(doc(db, 'users', uid), { classroomIds: arrayRemove(classroomId) })
@@ -269,10 +311,12 @@ export async function leaveClassroom(classroomId: string, uid: string): Promise<
 }
 
 export async function removeStudent(classroomId: string, uid: string): Promise<void> {
+  if (!isFirebaseConfigured()) return
   await leaveClassroom(classroomId, uid)
 }
 
 export async function findStudentByTag(tag: string): Promise<UserProfile | null> {
+  if (!isFirebaseConfigured()) return null
   const snap = await getDocs(query(collection(db, 'users'), where('studentTag', '==', tag.trim().toUpperCase())))
   if (snap.empty) return null
   return snap.docs[0].data() as UserProfile
@@ -280,6 +324,7 @@ export async function findStudentByTag(tag: string): Promise<UserProfile | null>
 
 export async function fetchUsersByIds(uids: string[] | undefined | null): Promise<UserProfile[]> {
   if (!uids || uids.length === 0) return []
+  if (!isFirebaseConfigured()) return []
   try {
     const validUids = uids.filter(Boolean)
     if (validUids.length === 0) return []
@@ -297,6 +342,7 @@ export async function inviteStudentByTag(params: {
   teacherId: string
   tag: string
 }): Promise<'sent' | 'not_found' | 'already_pending' | 'already_member'> {
+  if (!isFirebaseConfigured()) return 'not_found'
   const student = await findStudentByTag(params.tag)
   if (!student) return 'not_found'
   if (student.classroomIds?.includes(params.classroomId)) return 'already_member'
@@ -323,6 +369,7 @@ export async function inviteStudentByTag(params: {
 }
 
 export async function listPendingInvites(uid: string): Promise<ClassroomInvite[]> {
+  if (!isFirebaseConfigured()) return []
   const snap = await getDocs(
     query(collection(db, 'invites'), where('studentUid', '==', uid), where('status', '==', 'pending')),
   )
@@ -330,6 +377,7 @@ export async function listPendingInvites(uid: string): Promise<ClassroomInvite[]
 }
 
 export async function respondToInvite(inviteId: string, accept: boolean, uid: string, classroomId: string): Promise<void> {
+  if (!isFirebaseConfigured()) return
   const batch = writeBatch(db)
   batch.update(doc(db, 'invites', inviteId), { status: accept ? 'accepted' : 'declined' })
   if (accept) {
@@ -340,6 +388,21 @@ export async function respondToInvite(inviteId: string, accept: boolean, uid: st
 }
 
 export async function deleteClassroom(classroomId: string, teacherId: string): Promise<void> {
+  if (!isFirebaseConfigured()) {
+    try {
+      const raw = localStorage.getItem(LOCAL_PERSONAL_KEY)
+      if (raw) {
+        const list = JSON.parse(raw) as Classroom[]
+        if (Array.isArray(list)) {
+          localStorage.setItem(
+            LOCAL_PERSONAL_KEY,
+            JSON.stringify(list.filter((c) => c.id !== classroomId)),
+          )
+        }
+      }
+    } catch {}
+    return
+  }
   await deleteDoc(doc(db, 'classrooms', classroomId))
   await updateDoc(doc(db, 'users', teacherId), { classroomsTaughtIds: arrayRemove(classroomId) })
 }
@@ -356,6 +419,7 @@ export async function submitClassSuggestion(params: {
   title: string
   description: string
 }): Promise<void> {
+  if (!isFirebaseConfigured()) return
   await addDoc(collection(db, 'classSuggestions'), {
     teacherId: params.teacherId,
     teacherName: params.teacherName,
@@ -367,6 +431,7 @@ export async function submitClassSuggestion(params: {
 }
 
 export async function listClassSuggestions(): Promise<ClassSuggestion[]> {
+  if (!isFirebaseConfigured()) return []
   const snap = await getDocs(collection(db, 'classSuggestions'))
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<ClassSuggestion, 'id'>) }))
@@ -374,6 +439,7 @@ export async function listClassSuggestions(): Promise<ClassSuggestion[]> {
 }
 
 export async function markSuggestionReviewed(id: string): Promise<void> {
+  if (!isFirebaseConfigured()) return
   await updateDoc(doc(db, 'classSuggestions', id), { status: 'reviewed' })
 }
 
@@ -382,6 +448,23 @@ export async function markSuggestionReviewed(id: string): Promise<void> {
  * ensuring exactly ONE single canonical classroom exists in the active database.
  */
 export async function resetDatabaseToSingleClassroom(): Promise<{ deletedCount: number; message: string }> {
+  if (!isFirebaseConfigured()) {
+    let deletedCount = 0
+    try {
+      const raw = localStorage.getItem(LOCAL_PERSONAL_KEY)
+      if (raw) {
+        const list = JSON.parse(raw) as Classroom[]
+        if (Array.isArray(list)) {
+          deletedCount = list.filter((c) => c.id !== DEMO_CLASSROOM_ID).length
+        }
+        localStorage.removeItem(LOCAL_PERSONAL_KEY)
+      }
+    } catch {}
+    return {
+      deletedCount,
+      message: `Database reset complete: ${deletedCount} auxiliary class(es) removed. Only canonical class 'SunRoot Cyber-Physical Systems & Engineering' is active.`,
+    }
+  }
   try {
     const snap = await getDocs(collection(db, 'classrooms'))
     let deletedCount = 0

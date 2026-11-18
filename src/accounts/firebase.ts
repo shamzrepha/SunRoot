@@ -1,42 +1,74 @@
-import { initializeApp } from 'firebase/app'
-import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { initializeApp, getApps, type FirebaseApp, type FirebaseOptions } from 'firebase/app'
+import { getAuth, setPersistence, browserLocalPersistence, type Auth } from 'firebase/auth'
+import { getFirestore, type Firestore } from 'firebase/firestore'
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+const rawConfig = {
+  apiKey: import.meta.env?.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env?.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env?.VITE_FIREBASE_APP_ID,
 }
 
-// Fail loudly and visibly instead of crashing to a blank screen. Without this
-// check, a missing VITE_FIREBASE_* env var makes getAuth() throw during
-// module load — before a single line of the app's own UI has rendered — so
-// the page just goes blank with no on-screen signal of why. This turns that
-// into an actual message, since "check the browser console" isn't something
-// most people reach for the first time they see nothing at all.
-const missingKeys = Object.entries(firebaseConfig)
-  .filter(([, v]) => !v)
-  .map(([k]) => k)
-
-if (missingKeys.length > 0) {
-  const message = `SunRoot can't start: missing Firebase configuration (${missingKeys.join(', ')}). This build is missing one or more VITE_FIREBASE_* environment variables.`
-  document.body.innerHTML = `<div style="font-family:system-ui,sans-serif;max-width:640px;margin:80px auto;padding:24px;background:#1b2e22;color:#edefe6;border-radius:12px;line-height:1.5;">
-    <h1 style="color:#e8836b;font-size:20px;margin:0 0 12px;">Configuration error</h1>
-    <p style="margin:0;font-size:14px;">${message}</p>
-  </div>`
-  throw new Error(message)
+function isNonEmptyConfigValue(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.trim().length > 0 &&
+    value.trim() !== 'undefined' &&
+    value.trim() !== 'null'
+  )
 }
 
-const app = initializeApp(firebaseConfig)
+const REQUIRED_KEYS = ['apiKey', 'authDomain', 'projectId'] as const
+const missingRequiredKeys = REQUIRED_KEYS.filter((k) => !isNonEmptyConfigValue(rawConfig[k]))
+const firebaseConfigured = missingRequiredKeys.length === 0
 
-export const auth = getAuth(app)
-export const db = getFirestore(app)
+const FALLBACK_CONFIG: FirebaseOptions = {
+  apiKey: 'unconfigured-demo-key',
+  authDomain: 'unconfigured.firebaseapp.com',
+  projectId: 'unconfigured',
+  storageBucket: 'unconfigured.appspot.com',
+  messagingSenderId: '000000000000',
+  appId: '1:000000000000:web:unconfigured',
+}
 
-// Explicit local (IndexedDB) persistence — this is what stops the app from
-// asking a returning student or teacher to log in again on every visit.
-setPersistence(auth, browserLocalPersistence).catch((err) => {
-  console.error('Failed to set auth persistence', err)
-})
+function buildLiveConfig(): FirebaseOptions {
+  const cfg: FirebaseOptions = {
+    apiKey: rawConfig.apiKey!.trim(),
+    authDomain: rawConfig.authDomain!.trim(),
+    projectId: rawConfig.projectId!.trim(),
+  }
+  if (isNonEmptyConfigValue(rawConfig.storageBucket)) cfg.storageBucket = rawConfig.storageBucket.trim()
+  if (isNonEmptyConfigValue(rawConfig.messagingSenderId)) cfg.messagingSenderId = rawConfig.messagingSenderId.trim()
+  if (isNonEmptyConfigValue(rawConfig.appId)) cfg.appId = rawConfig.appId.trim()
+  return cfg
+}
+
+if (!firebaseConfigured) {
+  console.warn(
+    `SunRoot: Firebase env vars not configured (${missingRequiredKeys.join(', ')}). Running in offline/local-fallback mode.`,
+  )
+}
+
+const effectiveConfig: FirebaseOptions = firebaseConfigured ? buildLiveConfig() : FALLBACK_CONFIG
+
+const existingDefault = getApps().find((a) => a.name === '[DEFAULT]')
+export const app: FirebaseApp = existingDefault
+  ? existingDefault.options.projectId === effectiveConfig.projectId
+    ? existingDefault
+    : initializeApp(effectiveConfig, `sunroot-${effectiveConfig.projectId}`)
+  : initializeApp(effectiveConfig)
+
+export const auth: Auth = getAuth(app)
+export const db: Firestore = getFirestore(app)
+
+export function isFirebaseConfigured(): boolean {
+  return firebaseConfigured
+}
+
+if (firebaseConfigured && typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.error('Failed to set auth persistence', err)
+  })
+}

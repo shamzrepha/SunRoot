@@ -2,6 +2,7 @@ import * as Blockly from 'blockly'
 import { javascriptGenerator } from 'blockly/javascript'
 import { appState } from '../appState'
 import { buildIo, buildToolbox, defineCoreBlocks } from '../coding/DynamicBlockFactory'
+import { getSavedWorkspace, setSavedWorkspace } from '../coding/workspaceState'
 import { partOf, wiredOutputs } from '../hardware/CircuitGraph'
 import { farm, primeBattery } from '../simulation/FarmState'
 import { beginRun } from '../simulation/Scoreboard'
@@ -13,21 +14,6 @@ import { assistant } from '../ai/Assistant'
 import { sfx } from '../game/sound'
 import { completeObjective } from '../game/progress'
 import { toast, updateRankUi } from '../game/shell'
-
-/**
- * Survives navigation. Never seeded — the workspace starts genuinely empty.
- * Exposed via get/set so SaveManager can persist it across a real reload too,
- * not just in-session screen changes.
- */
-let savedWorkspace: object | null = null
-
-export function getSavedWorkspace(): object | null {
-  return savedWorkspace
-}
-
-export function setSavedWorkspace(snapshot: object | null) {
-  savedWorkspace = snapshot
-}
 
 /**
  * Every loop body gets a guard injected. A student writing `while true` with no
@@ -96,9 +82,10 @@ export function renderCodingLab(root: HTMLElement, onDeploy: () => void, onBack:
   })
 
   // Restore prior work, but never seed an example. A blank canvas is the point.
-  if (savedWorkspace) {
+  const priorWorkspace = getSavedWorkspace()
+  if (priorWorkspace) {
     try {
-      Blockly.serialization.workspaces.load(savedWorkspace, workspace)
+      Blockly.serialization.workspaces.load(priorWorkspace, workspace)
     } catch {
       /* blocks from a since-rewired bench may no longer exist */
     }
@@ -108,7 +95,7 @@ export function renderCodingLab(root: HTMLElement, onDeploy: () => void, onBack:
 
   workspace.addChangeListener((e: Blockly.Events.Abstract) => {
     if (e.isUiEvent) return
-    savedWorkspace = Blockly.serialization.workspaces.save(workspace)
+    setSavedWorkspace(Blockly.serialization.workspaces.save(workspace) as Record<string, unknown>)
   })
 
   requestAnimationFrame(() => Blockly.svgResize(workspace))

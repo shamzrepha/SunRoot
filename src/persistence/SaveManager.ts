@@ -23,7 +23,7 @@ import { tray } from '../hardware/PartsTray'
 import { learner, CONCEPTS, masteryOf, overallMastery, MASTERY_THRESHOLD } from '../learning/LearnerModel'
 import { score } from '../simulation/Scoreboard'
 import { progress } from '../game/progress'
-import { getSavedWorkspace, setSavedWorkspace } from '../screens/codingLab'
+import { getSavedWorkspace, setSavedWorkspace } from '../coding/workspaceState'
 import { session } from '../accounts/Session'
 import { pushProgressSnapshot } from '../accounts/ProgressService'
 import { getActiveClassroom } from '../accounts/WorkshopContext'
@@ -39,7 +39,7 @@ export interface SaveBlob {
   learner: unknown
   score: unknown
   progress: unknown
-  workspace: object | null
+  workspace: Record<string, unknown> | null
 }
 
 function saveKey(classroomId: string): string {

@@ -8,6 +8,7 @@ import { renderLearning } from './screens/learning'
 import { renderTeacher } from './screens/teacher'
 import { renderAccessibility } from './screens/accessibility'
 import { initAccessibility } from './ui/Accessibility'
+import { unmountActiveScreenIsland } from './ui/reactMount'
 import { mountAssistantDock } from './ai/AssistantDock'
 import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
 import { renderFarm, stopFarmLoop } from './screens/farm'
@@ -55,6 +56,9 @@ function navItems(screen: Screen): NavItem[] {
   const items: (NavItem & { group: string })[] = []
 
   items.push({ id: 'dashboard' as Screen, label: 'Dashboard', icon: icon('class'), group: 'Account' })
+  items.push({ id: 'onboard' as Screen, label: 'Start Learning', icon: icon('star'), group: 'Account' })
+  items.push({ id: 'guidedLabs' as Screen, label: 'Guided Labs', icon: icon('workshop'), group: 'Account' })
+  items.push({ id: 'metrics' as Screen, label: 'KPI & Cost Metrics', icon: icon('report'), group: 'Account' })
   items.push({ id: 'classes' as Screen, label: 'My Classes', icon: icon('class'), group: 'Account' })
   items.push({ id: 'studySetViewer' as Screen, label: 'Personal Study Lab', icon: icon('brain'), group: 'Account' })
   items.push({ id: 'leaderboard' as Screen, label: 'Leaderboard', icon: icon('rewards'), group: 'Account' })
@@ -93,6 +97,7 @@ function ensureShell() {
 
 export function goTo(screen: Screen) {
   if (screen !== 'farm') stopFarmLoop()
+  unmountActiveScreenIsland()
   appState.screen = screen
 
   // Leaving the workshop entirely (not just moving between its own screens)
@@ -137,6 +142,9 @@ export function goTo(screen: Screen) {
 
   const SCREEN_TITLES: Record<string, string> = {
     dashboard: 'Dashboard',
+    onboard: 'Start Learning',
+    guidedLabs: 'Guided Labs',
+    metrics: 'KPI & Cost Metrics',
     classes: 'My Classes',
     findClass: 'Find a Class',
     leaderboard: 'Leaderboard',
@@ -302,6 +310,59 @@ export function goTo(screen: Screen) {
       renderQuiz(host)
     } else if (screen === 'rewards') {
       renderRewards(host)
+    } else if (screen === 'onboard') {
+      host.innerHTML = '<div class="lazy-load">Loading Start Learning...</div>'
+      import('./screens/onboard')
+        .then(({ renderOnboard }) => {
+          if (appState.screen !== 'onboard') return
+          renderOnboard(host, {
+            toGuidedLabs: () => goTo('guidedLabs'),
+            toWorkshop: () => {
+              setActiveClassroom(DEMO_CLASSROOM_ID)
+              setActiveTeam(null)
+              restoreForActiveClassroom()
+              goTo('workshopHub')
+            },
+            toDashboard: () => goTo('dashboard'),
+          })
+        })
+        .catch(() => {
+          if (appState.screen === 'onboard') {
+            host.innerHTML = '<div class="screen"><p>Failed to load Start Learning view.</p></div>'
+          }
+        })
+    } else if (screen === 'guidedLabs') {
+      host.innerHTML = '<div class="lazy-load">Loading guided labs...</div>'
+      import('./screens/guidedLabs')
+        .then(({ renderGuidedLabs }) => {
+          if (appState.screen !== 'guidedLabs') return
+          renderGuidedLabs(host, {
+            toCoding: () => {
+              setActiveClassroom(DEMO_CLASSROOM_ID)
+              setActiveTeam(null)
+              restoreForActiveClassroom()
+              goTo('coding')
+            },
+            toDashboard: () => goTo('dashboard'),
+          })
+        })
+        .catch(() => {
+          if (appState.screen === 'guidedLabs') {
+            host.innerHTML = '<div class="screen"><p>Failed to load Guided Labs.</p></div>'
+          }
+        })
+    } else if (screen === 'metrics') {
+      host.innerHTML = '<div class="lazy-load">Loading KPI &amp; cost metrics...</div>'
+      import('./screens/metrics')
+        .then(({ renderMetrics }) => {
+          if (appState.screen !== 'metrics') return
+          renderMetrics(host)
+        })
+        .catch(() => {
+          if (appState.screen === 'metrics') {
+            host.innerHTML = '<div class="screen"><p>Failed to load Metrics dashboard.</p></div>'
+          }
+        })
     }
   })
 }

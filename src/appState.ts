@@ -1,6 +1,9 @@
 export type Screen =
   | 'login'
   | 'dashboard'
+  | 'onboard'
+  | 'guidedLabs'
+  | 'metrics'
   | 'classes'
   | 'findClass'
   | 'admin'

@@ -1,5 +1,5 @@
 import { collection, doc, addDoc, getDocs, updateDoc, query, where, serverTimestamp } from 'firebase/firestore'
-import { db } from './firebase'
+import { db, isFirebaseConfigured } from './firebase'
 import type { HomeworkAssignment, HomeworkVariant } from './types'
 import { createNotification } from './NotificationService'
 
@@ -96,6 +96,8 @@ export async function createHomeworkAssignment(params: {
       linkId: newAssignment.id,
     }).catch(() => {})
   })
+
+  if (!isFirebaseConfigured()) return newAssignment.id
 
   try {
     const ref = await addDoc(collection(db, 'homework'), {
@@ -194,17 +196,20 @@ export async function submitHomeworkSolution(params: {
   hw.variants[params.studentUid] = variant
   saveLocalHomework(locals)
 
-  try {
-    await updateDoc(doc(db, 'homework', params.homeworkId), {
-      [`variants.${params.studentUid}`]: variant as any,
-    })
-  } catch {}
+  if (isFirebaseConfigured()) {
+    try {
+      await updateDoc(doc(db, 'homework', params.homeworkId), {
+        [`variants.${params.studentUid}`]: variant as any,
+      })
+    } catch {}
+  }
 
   return { isCorrect, expected: variant.expectedAnswer, score, feedback }
 }
 
 export async function listHomeworkForClassroom(classroomId: string): Promise<HomeworkAssignment[]> {
   const locals = getLocalHomework().filter((h) => h.classroomId === classroomId)
+  if (!isFirebaseConfigured()) return locals
   try {
     const snap = await getDocs(query(collection(db, 'homework'), where('classroomId', '==', classroomId)))
     const remote = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HomeworkAssignment, 'id'>) }))

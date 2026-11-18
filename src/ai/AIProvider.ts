@@ -1,63 +1,87 @@
 // ---------------------------------------------------------------------------
 // AIProvider
 //
-// The assistant's brain. Two paths, in this order:
-//
-//   1. A real language model, if one is configured. Any OpenAI-compatible chat
-//      endpoint works — Groq, OpenAI, a local Ollama, or a serverless function
-//      of your own. Every request carries a live snapshot of the student's
-//      bench and farm, so answers are about their circuit, not about circuits
-//      in general.
-//
-//   2. A local answerer that reads the same snapshot and responds from rules.
-//      It has no key, no network and no cost, and it is what runs in a
-//      classroom with no internet. It is genuinely useful rather than a stub.
-//
-// On keys: anything stored in the browser is visible to anyone who opens the
-// devtools on that machine. That is acceptable for a personal key on your own
-// laptop and unacceptable for a shared deployment, so `proxyUrl` exists — point
-// it at a serverless function that holds the key server-side and this file
-// never sees a secret at all.
+// Unified AI gateway with model-tier routing, deterministic prompt caching,
+// token/cost telemetry, and offline local-rule degradation.
 // ---------------------------------------------------------------------------
 
 import { fullContext } from '../learning/ContextBuilder'
 import { currentMode } from '../learning/LearningModes'
 import { answerLocally } from './LocalAnswerer'
 import { session } from '../accounts/Session'
+import {
+  routeModel,
+  estimateCostUsd,
+  estimateTokensFromChars,
+  TIER_MODELS,
+  type ModelTier,
+  type AITaskKind,
+} from './ModelRouter'
+import { buildPromptCacheKey, promptCache } from './PromptCache'
+import { recordAIUsage } from '../accounts/CostTelemetryService'
 
-/**
- * Where the serverless function lives. Hardcoded on purpose: a student should
- * never configure anything, and the path is fixed by Netlify regardless of
- * where the file sits in the repository.
- *
- * The key is never here. It lives in the Netlify environment as GROQ_API_KEY
- * and is read by the function server-side, so nothing secret reaches the browser.
- */
+export type { ModelTier, AITaskKind }
+
 export const PROXY_PATH = '/api/ask'
 
 const STORE_KEY = 'sunroot.ai.config'
 
 export interface AIConfig {
-  /** OpenAI-compatible endpoint. Groq's is the default. */
   endpoint: string
-  /** Model name at that endpoint. */
   model: string
-  /** API key. Left blank when a proxy is used. */
   apiKey: string
-  /**
-   * A serverless endpoint that holds the key. When set, the key never enters
-   * the browser and `apiKey` is ignored.
-   */
   proxyUrl: string
 }
 
 const DEFAULTS: AIConfig = {
   endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-  model: 'gemini-1.5-flash',
+  model: TIER_MODELS.flash,
   apiKey: '',
-  // Always the deployed function. Overriding this is a developer action, not
-  // something the interface asks anyone to do.
   proxyUrl: PROXY_PATH,
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface AICompletionOptions {
+  task?: AITaskKind
+  tierOverride?: ModelTier
+  maxTokens?: number
+  temperature?: number
+  bypassCache?: boolean
+  labId?: string
+}
+
+export interface AIUsageRecord {
+  uid: string | null
+  task: AITaskKind
+  tier: ModelTier
+  model: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  estimatedUsd: number
+  cached: boolean
+  latencyMs: number
+  timestamp: string
+}
+
+export class AIHttpError extends Error {
+  status: number
+  body: string
+  url: string
+  model?: string
+
+  constructor(status: number, body: string, url: string, model?: string) {
+    super(`AI request failed (HTTP ${status}): ${body.slice(0, 150)}`)
+    this.name = 'AIHttpError'
+    this.status = status
+    this.body = body
+    this.url = url
+    this.model = model
+  }
 }
 
 export function loadConfig(): AIConfig {
@@ -69,29 +93,17 @@ export function loadConfig(): AIConfig {
   }
 }
 
-/**
- * Accept the several things people reasonably type when they mean "the Netlify
- * function". The file path on disk and the URL Netlify serves it at are
- * different strings, and confusing them produces a 404 that looks like a
- * deployment failure rather than a typo.
- */
 export function normaliseProxyUrl(raw: string): string {
   const v = raw.trim()
   if (!v) return ''
-
-  // A full URL, or an explicitly absolute path the user clearly meant.
   if (/^https?:\/\//i.test(v)) return v
 
-  // Anything that mentions a netlify function resolves to the canonical path.
   if (/netlify[\/\\]?functions?[\/\\]/i.test(v) || /^\/?\.?netlify/i.test(v)) {
     const name = v.replace(/\.js$/i, '').split(/[\/\\]/).filter(Boolean).pop() || 'ask'
     return `/.netlify/functions/${name}`
   }
 
-  // A bare function name.
   if (!v.includes('/')) return `/.netlify/functions/${v.replace(/\.js$/i, '')}`
-
-  // Some other path — make it root-relative so it is at least a valid request.
   return v.startsWith('/') ? v : `/${v}`
 }
 
@@ -101,18 +113,10 @@ export function saveConfig(c: Partial<AIConfig>) {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(next))
   } catch {
-    /* private browsing — the session still works, it just will not persist */
+    /* private browsing */
   }
 }
 
-/**
- * Whether a model is reachable.
- *
- * Optimistic until proven otherwise: the proxy is assumed to exist, because on
- * the deployed site it does. One failed round trip flips this to false so the
- * assistant stops retrying a route that is not there — which is what happens on
- * a local dev server, where Netlify functions are not running.
- */
 let proxyReachable: boolean | null = null
 
 export function isLiveAI(): boolean {
@@ -121,7 +125,6 @@ export function isLiveAI(): boolean {
   return proxyReachable !== false
 }
 
-/** Re-test a route that previously failed, e.g. after a deploy. */
 export function resetAIAvailability() {
   proxyReachable = null
   lastFailure = ''
@@ -132,12 +135,6 @@ export interface Turn {
   content: string
 }
 
-/**
- * The system prompt. It carries the pedagogy, not just a persona: the model is
- * told the student's measured mastery and the current mode, and instructed to
- * match the depth the rest of the app would use. Without this the model would
- * hand out answers in Challenge mode and undo the whole design.
- */
 function systemPrompt(): string {
   const mode = currentMode()
   const profile = session.profile
@@ -185,12 +182,6 @@ function modeInstruction(id: string): string {
   }
 }
 
-/**
- * The answer a student sees when the model is unreachable. It is the local
- * answer and nothing else — a child cannot act on "HTTP 404", and appending it
- * only makes a working assistant look broken. The reason is still returned for
- * the developer diagnostic.
- */
 function quiet(question: string, reason: string): string {
   void reason
   return answerLocally(question)
@@ -198,67 +189,184 @@ function quiet(question: string, reason: string): string {
 
 export interface AskResult {
   text: string
-  /** Whether a language model answered, or the offline rules did. */
   source: 'model' | 'local'
-  /** Why the model was not used, when it was not. */
   reason?: string
 }
 
-/** The last failure, so the settings panel can explain itself. */
 let lastFailure = ''
 export function lastAIFailure(): string {
   return lastFailure
 }
 
+export async function callAICompletionWithMeta(
+  messages: ChatMessage[],
+  options: AICompletionOptions = {},
+): Promise<{ text: string; usage: AIUsageRecord }> {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  const cfg = loadConfig()
+  const url = cfg.proxyUrl || cfg.endpoint
+  if (!url) throw new Error('No AI endpoint configured.')
+
+  const task: AITaskKind = options.task ?? 'chat'
+  const temperature = options.temperature ?? 0.3
+  const maxTokens =
+    typeof options.maxTokens === 'number' && Number.isFinite(options.maxTokens)
+      ? Math.max(1, Math.round(options.maxTokens))
+      : 1200
+  const promptChars = messages.reduce((sum, m) => sum + m.content.length, 0)
+  const routed = routeModel(task, promptChars, options.tierOverride)
+  const effectiveModel = routed.model
+  const cacheKey = buildPromptCacheKey(routed.tier, effectiveModel, messages, temperature, maxTokens)
+
+  if (!options.bypassCache) {
+    const cached = promptCache.get(cacheKey)
+    if (cached) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      const usage: AIUsageRecord = {
+        uid: session.user?.uid ?? null,
+        task,
+        tier: cached.tier,
+        model: cached.model,
+        promptTokens: cached.promptTokens,
+        completionTokens: cached.completionTokens,
+        totalTokens: cached.totalTokens,
+        estimatedUsd: 0,
+        cached: true,
+        latencyMs: Math.max(0, Math.round(now - t0)),
+        timestamp: new Date().toISOString(),
+      }
+      void recordAIUsage(usage).catch(() => {})
+      return { text: cached.text, usage }
+    }
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (cfg.apiKey) {
+    headers['x-gemini-key'] = cfg.apiKey
+    if (!cfg.proxyUrl) headers.Authorization = `Bearer ${cfg.apiKey}`
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      tier: routed.tier,
+      model: effectiveModel,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      ...(options.labId ? { labId: options.labId } : {}),
+    }),
+  })
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new AIHttpError(res.status, errBody, url, effectiveModel)
+  }
+
+  const data = await res.json()
+  const rawContent: unknown = data?.choices?.[0]?.message?.content
+  if (typeof rawContent !== 'string' || !rawContent.trim()) {
+    throw new Error('Model returned empty response content.')
+  }
+  const text = rawContent.trim()
+
+  const usedModel: string = data?.sunrootMeta?.model || data?.model || effectiveModel
+  const promptTokens: number =
+    data?.sunrootMeta?.promptTokens ??
+    data?.usage?.prompt_tokens ??
+    data?.usage?.promptTokenCount ??
+    estimateTokensFromChars(promptChars)
+  const completionTokens: number =
+    data?.sunrootMeta?.completionTokens ??
+    data?.usage?.completion_tokens ??
+    data?.usage?.candidatesTokenCount ??
+    estimateTokensFromChars(text.length)
+  const totalTokens: number =
+    data?.sunrootMeta?.totalTokens ??
+    data?.usage?.total_tokens ??
+    data?.usage?.totalTokenCount ??
+    promptTokens + completionTokens
+  const estimatedUsd: number =
+    typeof data?.sunrootMeta?.estimatedUsd === 'number'
+      ? data.sunrootMeta.estimatedUsd
+      : estimateCostUsd(usedModel, promptTokens, completionTokens)
+
+  if (!options.bypassCache) {
+    promptCache.set(cacheKey, {
+      text,
+      model: usedModel,
+      tier: routed.tier,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      estimatedUsd,
+    })
+  }
+
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  const usage: AIUsageRecord = {
+    uid: session.user?.uid ?? null,
+    task,
+    tier: routed.tier,
+    model: usedModel,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    estimatedUsd,
+    cached: false,
+    latencyMs: Math.max(0, Math.round(now - t0)),
+    timestamp: new Date().toISOString(),
+  }
+
+  void recordAIUsage(usage).catch(() => {})
+  return { text, usage }
+}
+
 /** Ask the assistant a question. Never throws — it degrades to local rules. */
-export async function ask(question: string, history: Turn[] = []): Promise<AskResult> {
+export async function ask(
+  question: string,
+  history: Turn[] = [],
+  options: AICompletionOptions = {},
+): Promise<AskResult> {
   const cfg = loadConfig()
 
-  // No route at all, or the only route is known to be missing.
   if ((!cfg.proxyUrl && !cfg.apiKey) || (!cfg.apiKey && proxyReachable === false)) {
     return { text: answerLocally(question), source: 'local', reason: lastFailure }
   }
 
-  const messages = [
+  const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt() },
     ...history.slice(-6),
     { role: 'user', content: question },
   ]
 
   try {
-    const url = cfg.proxyUrl || cfg.endpoint
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (cfg.apiKey) {
-      headers['x-gemini-key'] = cfg.apiKey
-      if (!cfg.proxyUrl) headers.Authorization = `Bearer ${cfg.apiKey}`
-    }
-
     lastFailure = ''
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        messages,
-        temperature: 0.4,
-        max_tokens: 320,
-      }),
+    const { text } = await callAICompletionWithMeta(messages, {
+      task: options.task ?? 'chat',
+      tierOverride: options.tierOverride,
+      maxTokens: options.maxTokens ?? 320,
+      temperature: options.temperature ?? 0.4,
+      bypassCache: options.bypassCache,
+      labId: options.labId,
     })
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
+    proxyReachable = true
+    return { text, source: 'model' }
+  } catch (err) {
+    if (err instanceof AIHttpError) {
       const detail =
-        res.status === 401
+        err.status === 401
           ? 'the API key was rejected (401). Check the key, or that it is set as GEMINI_API_KEY on the server.'
-          : res.status === 404
-            ? `nothing is listening at ${url} (404). If this is the Vercel proxy, check that /api/ask is deployed and accessible.`
-            : res.status === 400
-              ? `the request was rejected (400). The model name "${cfg.model}" may not exist at this endpoint. ${body.slice(0, 160)}`
-              : res.status === 429
+          : err.status === 404
+            ? `nothing is listening at ${err.url} (404). If this is the Vercel proxy, check that /api/ask is deployed and accessible.`
+            : err.status === 400
+              ? `the request was rejected (400). The model name "${err.model || cfg.model}" may not exist at this endpoint. ${err.body.slice(0, 160)}`
+              : err.status === 429
                 ? 'rate limit reached (429). Wait a moment and try again.'
-                : `HTTP ${res.status}. ${body.slice(0, 160)}`
+                : `HTTP ${err.status}. ${err.body.slice(0, 160)}`
       lastFailure = detail
-      if (res.status === 404 && cfg.proxyUrl) proxyReachable = false
+      if (err.status === 404 && cfg.proxyUrl) proxyReachable = false
       return {
         text: quiet(question, detail),
         source: 'local',
@@ -266,13 +374,6 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
       }
     }
 
-    const data = await res.json()
-    const text: string | undefined = data?.choices?.[0]?.message?.content
-    if (!text) return { text: answerLocally(question), source: 'local' }
-
-    proxyReachable = true
-    return { text: text.trim(), source: 'model' }
-  } catch (err) {
     const message = (err as Error)?.message ?? 'unknown error'
     const detail = cfg.proxyUrl
       ? `the proxy at ${cfg.proxyUrl} could not be reached (${message}).`
@@ -285,40 +386,17 @@ export async function ask(question: string, history: Turn[] = []): Promise<AskRe
 
 /** General-purpose AI completion runner using either user Gemini key or server proxy. */
 export async function callAICompletion(
-  messages: Array<{ role: string; content: string }>,
+  messages: ChatMessage[],
   maxTokens = 1200,
   temperature = 0.3,
+  options: Omit<AICompletionOptions, 'maxTokens' | 'temperature'> = {},
 ): Promise<string> {
-  const cfg = loadConfig()
-  const url = cfg.proxyUrl || cfg.endpoint
-  if (!url) throw new Error('No AI endpoint configured.')
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (cfg.apiKey) {
-    headers['x-gemini-key'] = cfg.apiKey
-    if (!cfg.proxyUrl) headers.Authorization = `Bearer ${cfg.apiKey}`
-  }
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    }),
+  const { text } = await callAICompletionWithMeta(messages, {
+    ...options,
+    maxTokens,
+    temperature,
   })
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '')
-    throw new Error(`AI request failed (HTTP ${res.status}): ${errText.slice(0, 150)}`)
-  }
-
-  const data = await res.json()
-  const content = data?.choices?.[0]?.message?.content
-  if (!content) throw new Error('Model returned empty response content.')
-  return content.trim()
+  return text
 }
 
 /** Quick verification check to test whether Gemini is accessible with key */
@@ -326,6 +404,7 @@ export async function testGeminiConnection(keyToTest?: string): Promise<{ succes
   const cfg = loadConfig()
   const activeKey = keyToTest !== undefined ? keyToTest.trim() : cfg.apiKey
   const url = cfg.proxyUrl || cfg.endpoint
+  const model = cfg.model || TIER_MODELS.flash
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (activeKey) {
@@ -338,7 +417,8 @@ export async function testGeminiConnection(keyToTest?: string): Promise<{ succes
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: cfg.model,
+        tier: 'flash',
+        model,
         messages: [{ role: 'user', content: 'Respond with exactly: SunRoot AI Online' }],
         max_tokens: 30,
         temperature: 0.1,
@@ -349,7 +429,7 @@ export async function testGeminiConnection(keyToTest?: string): Promise<{ succes
       const errBody = await res.text().catch(() => '')
       return {
         success: false,
-        message: `HTTP ${res.status}: ${errBody.slice(0, 120) || 'Check that your Gemini key has access to gemini-1.5-flash.'}`,
+        message: `HTTP ${res.status}: ${errBody.slice(0, 120) || `Check that your Gemini key has access to ${model}.`}`,
       }
     }
 
@@ -357,7 +437,7 @@ export async function testGeminiConnection(keyToTest?: string): Promise<{ succes
     const reply = data?.choices?.[0]?.message?.content || 'Ready'
     return {
       success: true,
-      message: `Connection verified! Model (${cfg.model}) replied: "${reply.trim()}"`,
+      message: `Connection verified! Model (${model}) replied: "${reply.trim()}"`,
     }
   } catch (err: any) {
     return {
@@ -366,4 +446,3 @@ export async function testGeminiConnection(keyToTest?: string): Promise<{ succes
     }
   }
 }
-
