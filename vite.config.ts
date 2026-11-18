@@ -22,6 +22,15 @@ export default defineConfig({
               includeDependenciesRecursively: false,
             },
             {
+              // Firebase is needed at boot (auth gate) but changes far less
+              // often than app code, so a separate chunk stays browser-cached
+              // across SunRoot deploys.
+              name: 'vendor-firebase',
+              test: /[\\/]node_modules[\\/](firebase|@firebase|idb|tslib)[\\/]/,
+              priority: 18,
+              includeDependenciesRecursively: false,
+            },
+            {
               name: 'vendor-react',
               test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/,
               priority: 15,

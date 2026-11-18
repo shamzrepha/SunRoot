@@ -1,18 +1,11 @@
-import './style.css'
+﻿import './style.css'
 import { appState } from './appState'
 import type { Screen } from './appState'
 import { renderLoading, renderIntro } from './screens/boot'
-import { renderCircuitLab } from './screens/circuitLab'
-import { renderToolShed } from './screens/toolShed'
-import { renderLearning } from './screens/learning'
-import { renderTeacher } from './screens/teacher'
-import { renderAccessibility } from './screens/accessibility'
 import { initAccessibility } from './ui/Accessibility'
 import { unmountActiveScreenIsland } from './ui/reactMount'
 import { mountAssistantDock } from './ai/AssistantDock'
 import { hasSeenOnboarding, renderWelcomeGate, startOnboarding } from './ui/Onboarding'
-import { renderFarm, stopFarmLoop } from './screens/farm'
-import { renderTutor, renderReport, renderQuiz, renderRewards } from './screens/extras'
 import { mountShell, renderNav, updateRankUi, updateTeamPanel, setSidebarTheme, setHudVisible, transitionView, setTopbarTitle } from './game/shell'
 import type { NavItem } from './game/shell'
 import { farm } from './simulation/FarmState'
@@ -28,14 +21,39 @@ import { setActiveClassroom, getActiveClassroom, setActiveTeam } from './account
 import { ensureDemoClassroomExists, DEMO_CLASSROOM_ID } from './accounts/ClassroomService'
 import { renderLogin } from './screens/login'
 import { renderDashboard } from './screens/dashboard'
-import { renderClasses } from './screens/classes'
-import { renderFindClass } from './screens/findClass'
-import { renderAdmin } from './screens/admin'
-import { renderProfile } from './screens/profile'
-import { renderLeaderboard } from './screens/leaderboard'
-import { renderMessages, openThreadWith } from './screens/messages'
-import { renderStudySetViewer } from './screens/studySetViewer'
 import { renderCompleteProfile } from './screens/completeProfile'
+
+// --- Lazy screen loading ------------------------------------------------------
+// Only the auth gate, boot screens, shell and dashboard ship in the entry
+// bundle. Every other screen is fetched the first time it is opened, which
+// keeps first load small on slow mobile data. Vite/Rolldown turns each
+// import() below into its own chunk; repeat visits hit the module cache.
+
+// The farm runs a RAF loop. We only need to stop it if the farm module has
+// actually been loaded, so keep a handle instead of importing it eagerly.
+let stopFarmLoop: (() => void) | null = null
+
+function lazyScreen<M>(
+  host: HTMLElement,
+  screen: Screen,
+  label: string,
+  load: () => Promise<M>,
+  render: (mod: M) => void,
+) {
+  host.innerHTML = `<div class="lazy-load" role="status" aria-live="polite">Loading ${label}\u2026</div>`
+  load()
+    .then((mod) => {
+      // The student may have navigated elsewhere while the chunk downloaded.
+      if (appState.screen !== screen) return
+      render(mod)
+    })
+    .catch((err) => {
+      console.error(`[SunRoot] failed to load ${screen} screen`, err)
+      if (appState.screen !== screen) return
+      host.innerHTML = `<div class="screen"><p>Couldn't load ${label}. Check your connection.</p><button type="button" class="btn" data-retry>Try again</button></div>`
+      host.querySelector<HTMLButtonElement>('[data-retry]')?.addEventListener('click', () => goTo(screen))
+    })
+}
 
 const root = document.querySelector<HTMLDivElement>('#app')!
 let shellMounted = false
@@ -44,11 +62,11 @@ let postLoadingScreen: Screen = 'dashboard'
 const WORKSHOP_SCREENS: Screen[] = ['workshopHub', 'farm', 'shed', 'circuit', 'coding', 'learning', 'quiz', 'report', 'rewards', 'tutor']
 
 function navItems(screen: Screen): NavItem[] {
-  // The build/progress screens are the actual digital twin — deliberately
+  // The build/progress screens are the actual digital twin â€” deliberately
   // NOT shown until the student has opened a classroom's workshop, so
   // logging in lands on the school portal (Dashboard/Classes), not straight
   // into the simulation. Once inside, they stay visible so moving between
-  // Tool Shed → Circuit Lab → Coding Lab → Farm doesn't require detouring
+  // Tool Shed â†’ Circuit Lab â†’ Coding Lab â†’ Farm doesn't require detouring
   // back through a classroom page every time.
   const inWorkshop = WORKSHOP_SCREENS.includes(screen)
   const role = session.profile?.role
@@ -96,7 +114,7 @@ function ensureShell() {
 }
 
 export function goTo(screen: Screen) {
-  if (screen !== 'farm') stopFarmLoop()
+  if (screen !== 'farm') stopFarmLoop?.()
   unmountActiveScreenIsland()
   appState.screen = screen
 
@@ -117,7 +135,7 @@ export function goTo(screen: Screen) {
     shellMounted = false
     initAccessibility()
     mountAssistantDock()
-    // Normally the dashboard, not the farm — but if a refresh happened
+    // Normally the dashboard, not the farm â€” but if a refresh happened
     // mid-workshop, the auth gate sets postLoadingScreen to 'farm' so a
     // refresh actually resumes the session instead of bouncing back to the
     // dashboard and making the student navigate back in by hand.
@@ -168,27 +186,28 @@ export function goTo(screen: Screen) {
 
   transitionView((host) => {
     if (screen === 'workshopHub') {
-      import('./screens/workshopHub').then(({ renderWorkshopHub }) => {
-        if (appState.screen !== 'workshopHub') return
+      lazyScreen(host, screen, 'workshop overview', () => import('./screens/workshopHub'), ({ renderWorkshopHub }) => {
         renderWorkshopHub(host, () => goTo('shed'))
       })
     } else if (screen === 'shed') {
-      renderToolShed(host, () => goTo('circuit'))
-      narrateOnce(
-        'shed',
-        'Everything a workshop would stock is here, and none of it is marked as the right answer. ' +
-          'Read the specifications and take what you think your design needs.',
-      )
+      lazyScreen(host, screen, 'tool shed', () => import('./screens/toolShed'), ({ renderToolShed }) => {
+        renderToolShed(host, () => goTo('circuit'))
+        narrateOnce(
+          'shed',
+          'Everything a workshop would stock is here, and none of it is marked as the right answer. ' +
+            'Read the specifications and take what you think your design needs.',
+        )
+      })
     } else if (screen === 'circuit') {
-      renderCircuitLab(host, () => goTo('coding'), () => goTo('shed'))
-      narrateOnce(
-        'circuit',
-        'An empty bench. Only what you bought is available, and nothing is wired for you.',
-      )
+      lazyScreen(host, screen, 'circuit lab', () => import('./screens/circuitLab'), ({ renderCircuitLab }) => {
+        renderCircuitLab(host, () => goTo('coding'), () => goTo('shed'))
+        narrateOnce(
+          'circuit',
+          'An empty bench. Only what you bought is available, and nothing is wired for you.',
+        )
+      })
     } else if (screen === 'coding') {
-      host.innerHTML = '<div class="lazy-load">Loading coding lab...</div>'
-      import('./screens/codingLab').then(({ renderCodingLab }) => {
-        if (appState.screen !== 'coding') return
+      lazyScreen(host, screen, 'coding lab', () => import('./screens/codingLab'), ({ renderCodingLab }) => {
         renderCodingLab(host, () => goTo('farm'), () => goTo('circuit'))
         narrateOnce(
           'coding',
@@ -196,17 +215,19 @@ export function goTo(screen: Screen) {
         )
       })
     } else if (screen === 'farm') {
-      renderFarm(host, () => goTo('coding'), () => goTo('shed'), () => goTo('circuit'))
-      if (!hasSeenOnboarding() && !welcomeShown) {
-        welcomeShown = true
-        document.body.appendChild(
-          renderWelcomeGate(
-            () => startOnboarding(),
-            () => { /* they chose to explore; nothing further */ },
-          ),
-        )
-      }
-
+      lazyScreen(host, screen, 'farm', () => import('./screens/farm'), (m) => {
+        stopFarmLoop = m.stopFarmLoop
+        m.renderFarm(host, () => goTo('coding'), () => goTo('shed'), () => goTo('circuit'))
+        if (!hasSeenOnboarding() && !welcomeShown) {
+          welcomeShown = true
+          document.body.appendChild(
+            renderWelcomeGate(
+              () => startOnboarding(),
+              () => { /* they chose to explore; nothing further */ },
+            ),
+          )
+        }
+      })
     } else if (screen === 'dashboard') {
       renderDashboard(host, {
         toClasses: () => goTo('classes'),
@@ -262,107 +283,94 @@ export function goTo(screen: Screen) {
         },
       })
     } else if (screen === 'classes') {
-      renderClasses(host, {
-        toWorkshop: (classroomId) => {
-          setActiveClassroom(classroomId)
-          setActiveTeam(null) // solo workshop unless a team entry point sets this itself
-          restoreForActiveClassroom()
-          goTo('workshopHub')
-        },
-        toTeamWorkshop: async (classroomId, teamId) => {
-          setActiveClassroom(classroomId)
-          setActiveTeam(teamId)
-          const team = await getTeam(teamId)
-          // Pull the team's last shipped state if there is one; otherwise
-          // fall back to whatever this student already has saved for this
-          // classroom (e.g. the very first team member to open it).
-          const pulled = team?.sharedState && Object.keys(team.sharedState).length
-            ? applySnapshot(team.sharedState as any)
-            : false
-          if (!pulled) restoreForActiveClassroom()
-          goTo('workshopHub')
-        },
-        toStudySetViewer: () => goTo('studySetViewer'),
+      lazyScreen(host, screen, 'your classes', () => import('./screens/classes'), ({ renderClasses }) => {
+        renderClasses(host, {
+          toWorkshop: (classroomId) => {
+            setActiveClassroom(classroomId)
+            setActiveTeam(null) // solo workshop unless a team entry point sets this itself
+            restoreForActiveClassroom()
+            goTo('workshopHub')
+          },
+          toTeamWorkshop: async (classroomId, teamId) => {
+            setActiveClassroom(classroomId)
+            setActiveTeam(teamId)
+            const team = await getTeam(teamId)
+            // Pull the team's last shipped state if there is one; otherwise
+            // fall back to whatever this student already has saved for this
+            // classroom (e.g. the very first team member to open it).
+            const pulled = team?.sharedState && Object.keys(team.sharedState).length
+              ? applySnapshot(team.sharedState as any)
+              : false
+            if (!pulled) restoreForActiveClassroom()
+            goTo('workshopHub')
+          },
+          toStudySetViewer: () => goTo('studySetViewer'),
+        })
       })
     } else if (screen === 'findClass') {
-      renderFindClass(host)
+      lazyScreen(host, screen, 'class finder', () => import('./screens/findClass'), ({ renderFindClass }) => renderFindClass(host))
     } else if (screen === 'admin') {
-      renderAdmin(host)
+      lazyScreen(host, screen, 'admin console', () => import('./screens/admin'), ({ renderAdmin }) => renderAdmin(host))
     } else if (screen === 'profile') {
-      renderProfile(host, { toMessages: (uid) => { openThreadWith(uid); goTo('messages') } })
+      lazyScreen(host, screen, 'profile', () => import('./screens/profile'), ({ renderProfile }) => {
+        renderProfile(host, {
+          toMessages: (uid) => {
+            import('./screens/messages').then(({ openThreadWith }) => {
+              openThreadWith(uid)
+              goTo('messages')
+            })
+          },
+        })
+      })
     } else if (screen === 'leaderboard') {
-      renderLeaderboard(host)
+      lazyScreen(host, screen, 'leaderboard', () => import('./screens/leaderboard'), ({ renderLeaderboard }) => renderLeaderboard(host))
     } else if (screen === 'messages') {
-      renderMessages(host)
+      lazyScreen(host, screen, 'messages', () => import('./screens/messages'), ({ renderMessages }) => renderMessages(host))
     } else if (screen === 'studySetViewer') {
-      renderStudySetViewer(host, () => goTo('classes'))
+      lazyScreen(host, screen, 'Personal Study Lab', () => import('./screens/studySetViewer'), ({ renderStudySetViewer }) => {
+        renderStudySetViewer(host, () => goTo('classes'))
+      })
     } else if (screen === 'learning') {
-      renderLearning(host)
+      lazyScreen(host, screen, 'learning model', () => import('./screens/learning'), ({ renderLearning }) => renderLearning(host))
     } else if (screen === 'teacher') {
-      renderTeacher(host)
+      lazyScreen(host, screen, 'teacher analytics', () => import('./screens/teacher'), ({ renderTeacher }) => renderTeacher(host))
     } else if (screen === 'access') {
-      renderAccessibility(host)
+      lazyScreen(host, screen, 'accessibility settings', () => import('./screens/accessibility'), ({ renderAccessibility }) => renderAccessibility(host))
     } else if (screen === 'tutor') {
-      renderTutor(host)
+      lazyScreen(host, screen, 'tutor', () => import('./screens/extras'), ({ renderTutor }) => renderTutor(host))
     } else if (screen === 'report') {
-      renderReport(host)
+      lazyScreen(host, screen, 'report', () => import('./screens/extras'), ({ renderReport }) => renderReport(host))
     } else if (screen === 'quiz') {
-      renderQuiz(host)
+      lazyScreen(host, screen, 'learning check', () => import('./screens/extras'), ({ renderQuiz }) => renderQuiz(host))
     } else if (screen === 'rewards') {
-      renderRewards(host)
+      lazyScreen(host, screen, 'rewards', () => import('./screens/extras'), ({ renderRewards }) => renderRewards(host))
     } else if (screen === 'onboard') {
-      host.innerHTML = '<div class="lazy-load">Loading Start Learning...</div>'
-      import('./screens/onboard')
-        .then(({ renderOnboard }) => {
-          if (appState.screen !== 'onboard') return
-          renderOnboard(host, {
-            toGuidedLabs: () => goTo('guidedLabs'),
-            toWorkshop: () => {
-              setActiveClassroom(DEMO_CLASSROOM_ID)
-              setActiveTeam(null)
-              restoreForActiveClassroom()
-              goTo('workshopHub')
-            },
-            toDashboard: () => goTo('dashboard'),
-          })
+      lazyScreen(host, screen, 'Start Learning', () => import('./screens/onboard'), ({ renderOnboard }) => {
+        renderOnboard(host, {
+          toGuidedLabs: () => goTo('guidedLabs'),
+          toWorkshop: () => {
+            setActiveClassroom(DEMO_CLASSROOM_ID)
+            setActiveTeam(null)
+            restoreForActiveClassroom()
+            goTo('workshopHub')
+          },
+          toDashboard: () => goTo('dashboard'),
         })
-        .catch(() => {
-          if (appState.screen === 'onboard') {
-            host.innerHTML = '<div class="screen"><p>Failed to load Start Learning view.</p></div>'
-          }
-        })
+      })
     } else if (screen === 'guidedLabs') {
-      host.innerHTML = '<div class="lazy-load">Loading guided labs...</div>'
-      import('./screens/guidedLabs')
-        .then(({ renderGuidedLabs }) => {
-          if (appState.screen !== 'guidedLabs') return
-          renderGuidedLabs(host, {
-            toCoding: () => {
-              setActiveClassroom(DEMO_CLASSROOM_ID)
-              setActiveTeam(null)
-              restoreForActiveClassroom()
-              goTo('coding')
-            },
-            toDashboard: () => goTo('dashboard'),
-          })
+      lazyScreen(host, screen, 'guided labs', () => import('./screens/guidedLabs'), ({ renderGuidedLabs }) => {
+        renderGuidedLabs(host, {
+          toCoding: () => {
+            setActiveClassroom(DEMO_CLASSROOM_ID)
+            setActiveTeam(null)
+            restoreForActiveClassroom()
+            goTo('coding')
+          },
+          toDashboard: () => goTo('dashboard'),
         })
-        .catch(() => {
-          if (appState.screen === 'guidedLabs') {
-            host.innerHTML = '<div class="screen"><p>Failed to load Guided Labs.</p></div>'
-          }
-        })
+      })
     } else if (screen === 'metrics') {
-      host.innerHTML = '<div class="lazy-load">Loading KPI &amp; cost metrics...</div>'
-      import('./screens/metrics')
-        .then(({ renderMetrics }) => {
-          if (appState.screen !== 'metrics') return
-          renderMetrics(host)
-        })
-        .catch(() => {
-          if (appState.screen === 'metrics') {
-            host.innerHTML = '<div class="screen"><p>Failed to load Metrics dashboard.</p></div>'
-          }
-        })
+      lazyScreen(host, screen, 'KPI &amp; cost metrics', () => import('./screens/metrics'), ({ renderMetrics }) => renderMetrics(host))
     }
   })
 }
@@ -388,7 +396,7 @@ setInterval(() => {
 
 // --- Auth gate --------------------------------------------------------------
 // Nothing else renders until Firebase reports whether a session is cached.
-// That check is what makes "stay logged in across a refresh" actually work —
+// That check is what makes "stay logged in across a refresh" actually work â€”
 // previously there was no gate at all, so the app always booted straight into
 // the farm with no notion of who (if anyone) was using it.
 root.innerHTML = `<div class="screen"><p class="empty-note" style="padding:24px">Loading SunRoot\u2026</p></div>`
@@ -403,7 +411,7 @@ onAuthChange(async (user) => {
 
   await refreshProfile()
 
-  // Authenticated, but no Firestore profile — this is the fix for the
+  // Authenticated, but no Firestore profile â€” this is the fix for the
   // Google sign-in race (see completeProfile.ts for the full explanation).
   // Handling it here, in the one place every auth state change passes
   // through, means it's caught no matter which code path got someone into
